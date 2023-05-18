@@ -1,0 +1,16 @@
+{
+    "random_state": 2876453,
+    "n_seeds": 5,
+
+    "datasets": ["agnews", "trec", "cb", "rte", "sst2", "dbpedia"],
+    "n_shots": [0, 1, 4, 8],
+    "eval_split": "test",
+
+    "model": "gpt2-xl",
+    "api_num_log_probs": null,
+    "batch_size": 1,
+    "approx": true,
+
+    "content_free_inputs": ["[MASK]","N/A",""],
+    "num_train_samples": 10
+}
