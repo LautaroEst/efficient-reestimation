@@ -25,7 +25,7 @@ def main():
     datasets = config.pop("datasets") # dataset
     rs = np.random.RandomState(random_state) # seed
     
-    print(f"Running experiments for {n_seeds} seeds, {len(n_shots_list)} n_shots and {len(datasets)} datasets with the following configuration:")
+    print(f"\nRunning experiments for {n_seeds} seeds, {len(n_shots_list)} n_shots and {len(datasets)} datasets with the following configuration:")
     print("--------------------------------------------------")
     print("Model:", config["model"])
     print("Evaluation split:", config["eval_split"])
@@ -56,7 +56,7 @@ def main():
                 result = run(root_dir, **config)
                 save_results(root_dir, result, config, result_id)
 
-    print("All runs finished!")
+    print("\nAll runs finished!")
     print("Collecting results...", end=" ")
     collect_results()
     print("Done!")
