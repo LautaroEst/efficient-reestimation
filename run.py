@@ -2,7 +2,11 @@
 import os
 import numpy as np
 from src.utils import parse_args, create_hash_from_dict, save_results
+from src.data import ClassificationDataset
+from src.models import create_model
+from src.evaluation import get_original_unnormalized_logprobs, get_content_free_input_probs, get_train_queries_probs, transform_probs
 from tqdm import tqdm
+
 
 
 DATASETS = ["agnews", "trec", "cb", "rte", "sst2", "dbpedia"]
@@ -24,14 +28,20 @@ def main():
     n_shots_list = config.pop("n_shots") # shots
     datasets = config.pop("datasets") # dataset
     rs = np.random.RandomState(random_state) # seed
+
+    # Instantiate model
+    model_name = config.pop("model")
+    print("\nInstantiating the model...", end=" ")
+    model = create_model(root_dir, model=model_name)
+    print("Done!\n")
     
-    print(f"\nRunning experiments for {n_seeds} seeds, {len(n_shots_list)} n_shots and {len(datasets)} datasets with the following configuration:")
+    print(f"Running experiments for {n_seeds} seeds, {len(n_shots_list)} n_shots and {len(datasets)} datasets with the following configuration:\n")
     print("--------------------------------------------------")
-    print("Model:", config["model"])
+    print("Model:", model_name)
     print("Evaluation split:", config["eval_split"])
     print("Content free inputs:", config["content_free_inputs"])
     print("Number of train samples:", config["num_train_samples"])
-    print("--------------------------------------------------")
+    print("--------------------------------------------------\n")
     # For each n_shots
     pbar_shots = tqdm(n_shots_list, leave=False)
     for n_shots in pbar_shots:
@@ -53,27 +63,72 @@ def main():
                 result_id = create_hash_from_dict(config)
                 if os.path.exists(f"{root_dir}/results/raw/{result_id}") and use_saved_results:
                     continue
-                result = run(root_dir, **config)
+                result = run(root_dir, model, **config)
                 save_results(root_dir, result, config, result_id)
 
-    print("\nAll runs finished!")
+    print("All runs finished!")
     print("Collecting results...", end=" ")
     collect_results()
-    print("Done!")
+    print("Done!\n")
+
 
 def run(
     root_dir,
+    model,
     dataset = "agnews",
     n_shots = 4,
     eval_split = "test",
-    model = "gpt2",
     content_free_inputs = ["N/A"],
     num_train_samples = 1000,
     random_state = None,
 ):
-    import time
-    time.sleep(0.1)
-    return {"esto": "es un test", "y esto": "tambien"}
+    
+    # Instantiate dataset
+    dataset_obj = ClassificationDataset(
+        root_dir,
+        dataset,
+        n_shot=n_shots,
+        random_state=random_state
+    )
+
+    # Obtain the plain (unnormed) log-probabilities for each label
+    true_labels, original_probs = get_original_unnormalized_logprobs(
+        model, 
+        dataset_obj, 
+        eval_split=eval_split, 
+        num_samples=None, 
+        batch_size=1
+    )
+
+    # Obtain the log-probabilities for each label when using content-free inputs
+    content_free_input_probs = get_content_free_input_probs(
+        model, 
+        dataset_obj, 
+        content_free_inputs, 
+        batch_size=1
+    )
+    probs_rescaled_content_free = transform_probs(original_probs, content_free_input_probs)
+
+    # Obtain the log-probabilities for each label when using train samples as inputs
+    train_queries_probs = get_train_queries_probs(
+        model,
+        dataset_obj,
+        num_train_samples=num_train_samples, 
+        batch_size=1
+    )
+    probs_rescaled_train_queries = transform_probs(original_probs, train_queries_probs)
+
+    results = {
+        "true_labels": true_labels,
+        "original_probs": original_probs,
+        "probs_rescaled_content_free": probs_rescaled_content_free,
+        "probs_rescaled_train_queries": probs_rescaled_train_queries,
+        "predictions_original": np.argmax(original_probs, axis=1),
+        "predictions_content_free": np.argmax(probs_rescaled_content_free, axis=1),
+        "predictions_train_queries": np.argmax(probs_rescaled_train_queries, axis=1),
+    }
+    return results
+
 
 
 def collect_results():

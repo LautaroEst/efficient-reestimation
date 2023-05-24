@@ -215,19 +215,14 @@ class ClassificationDataset:
         all_train_labels = self._data['train_labels']
         new_train_sentences = []
         new_train_labels = []
-        prompt_shots_sentences = []
-        prompt_shots_labels = []
         for idx, (sentence, label) in enumerate(zip(all_train_sentences, all_train_labels)):
-            if idx in train_shots_idx:
-                prompt_shots_sentences.append(sentence)
-                prompt_shots_labels.append(label)
-            else:
+            if idx not in train_shots_idx:
                 new_train_sentences.append(sentence)
                 new_train_labels.append(label)
         self._data['train_sentences'] = new_train_sentences
         self._data['train_labels'] = new_train_labels
-        self.prompt_shots_sentences = prompt_shots_sentences
-        self.prompt_shots_labels = prompt_shots_labels
+        self.prompt_shots_sentences = [all_train_sentences[idx] for idx in train_shots_idx]
+        self.prompt_shots_labels = [all_train_labels[idx] for idx in train_shots_idx]
 
 
     def _load_data(self,dataset="agnews"):
@@ -318,13 +313,14 @@ class ClassificationDataset:
             )
 
         # take the prompt template and fill in the training and test example
-        MAX_CHARS_PER_SENTENCE = 2500 // (len(train_sentences) + 1) # 2500 is the max number of tokens allowed in the model multiplied by 2.5 (appox, chars per token)
+        # MAX_CHARS_PER_SENTENCE = 2500 // (len(train_sentences) + 1) # 2500 is the max number of tokens allowed in the model multiplied by 2.5 (appox, chars per token)
         prompt = self.prompt_prefix
         q_prefix = self.q_prefix
         a_prefix = self.a_prefix
         for s, l in zip(train_sentences, train_labels):
             prompt += q_prefix
-            prompt += s[:MAX_CHARS_PER_SENTENCE] + "\n"
+            # prompt += s[:MAX_CHARS_PER_SENTENCE] + "\n"
+            prompt += s + "\n"
             if isinstance(l, int) or isinstance(l, np.int32) or isinstance(l, np.int64): # integer labels for classification
                 assert self.task_format == 'classification'
                 l_str = self.label_dict[l][0] if isinstance(self.label_dict[l], list) else self.label_dict[l]
@@ -337,13 +333,19 @@ class ClassificationDataset:
             prompt += l_str + "\n\n"
 
         prompt += q_prefix
-        prompt += test_sentence[:MAX_CHARS_PER_SENTENCE] + "\n"
+        # prompt += test_sentence[:MAX_CHARS_PER_SENTENCE] + "\n"
+        prompt += test_sentence + "\n"
         assert a_prefix[-1] == ' '
         prompt += a_prefix[:-1] # GPT models do not want a trailing space, so we cut off -1
         return prompt
     
-    def sample(self,idx,split="test"):
 
+    def construct_prompt_with_train_shots(self, sentence, prompt_func=None):
+        prompt = self.construct_prompt(self.prompt_shots_sentences, self.prompt_shots_labels, sentence, prompt_func=prompt_func)
+        return prompt
+
+
+    def random_batch_loader_from_split(self,split="test",num_samples=100,batch_size=32):
         if split == "test":
             all_sentences = self._data['test_sentences']
             all_labels = self._data['test_labels']
@@ -353,36 +355,59 @@ class ClassificationDataset:
         elif split == "train":
             all_sentences = self._data['train_sentences']
             all_labels = self._data['train_labels']
-        
-        prompt = self.construct_prompt_with_train_shots(all_sentences[idx], prompt_func=self.prompt_func)
-        return {
-            'prompt': prompt,
-            'label': all_labels[idx]
-        }
+        return self._batch_iter(all_sentences, all_labels, num_samples=num_samples, batch_size=batch_size)
     
-    def construct_prompt_with_train_shots(self, sentence, prompt_func=None):
-        prompt = self.construct_prompt(self.prompt_shots_sentences, self.prompt_shots_labels, sentence, prompt_func=prompt_func)
-        return prompt
 
-    def batch_iter(self,split="test",num_eval=100,batch_size=32):
-        if split == "test":
-            num_samples = len(self._data["test_sentences"])
-        elif split == "dev":
-            num_samples = len(self._data["dev_sentences"])
-        elif split == "train":
-            num_samples = len(self._data["train_sentences"])
+    def random_batch_loader_from_list(self, data, num_samples=None, batch_size=32):
+        fictional_labels = [0] * len(data)
+        for batch in self._batch_iter(data, fictional_labels, num_samples=num_samples, batch_size=batch_size):
+            prompt = batch['prompt']
+            yield prompt
 
-        if num_eval is None:
-            num_eval = num_samples
+
+    def _batch_iter(self, all_sentences, all_labels, num_samples=None, batch_size=32, prompt_func=None):
+
+        total_samples = len(all_sentences)
+        if num_samples is None:
+            num_samples = total_samples
         else:
-            num_eval = min(num_eval,num_samples)
-        test_idx = self._rs.permutation(num_samples)[:num_eval]
+            num_samples = min(num_samples,total_samples)
+        test_idx = self._rs.permutation(total_samples)[:num_samples]
 
-        for i in tqdm(range(0, num_eval, batch_size),total=num_eval//batch_size):
+        pbar = tqdm(range(0, num_samples, batch_size),total=num_samples//batch_size, leave=False, desc=f"")
+        for i in pbar:
             batch_idx = test_idx[i:i+batch_size]
             batch = {'prompt': [], 'label': []}
             for idx in batch_idx:
-                sample = self.sample(idx,split)
-                batch['prompt'].append(sample['prompt'])
-                batch['label'].append(sample['label'])
+                prompt = self.construct_prompt_with_train_shots(all_sentences[idx], prompt_func=prompt_func)
+                batch['prompt'].append(prompt)
+                batch['label'].append(all_labels[idx])
             yield batch
+
+
+    
+
+
+    # def batch_iter(self,split="test",num_eval=100,batch_size=32):
+    #     if split == "test":
+    #         num_samples = len(self._data["test_sentences"])
+    #     elif split == "dev":
+    #         num_samples = len(self._data["dev_sentences"])
+    #     elif split == "train":
+    #         num_samples = len(self._data["train_sentences"])
+
+    #     if num_eval is None:
+    #         num_eval = num_samples
+    #     else:
+    #         num_eval = min(num_eval,num_samples)
+    #     test_idx = self._rs.permutation(num_samples)[:num_eval]
+
+    #     pbar = tqdm(range(0, num_eval, batch_size),total=num_eval//batch_size, leave=False, desc=f"Running on {split}")
+    #     for i in pbar:
+    #         batch_idx = test_idx[i:i+batch_size]
+    #         batch = {'prompt': [], 'label': []}
+    #         for idx in batch_idx:
+    #             sample = self.sample(idx,split)
+    #             batch['prompt'].append(sample['prompt'])
+    #             batch['label'].append(sample['label'])
+    #         yield batch
