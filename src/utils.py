@@ -2,10 +2,16 @@
 
 
 import argparse
+from copy import deepcopy
 import hashlib
 import json
 import os
 import pickle
+
+import numpy as np
+import pandas as pd
+from sklearn.metrics import accuracy_score
+from tqdm import tqdm
 
 
 def parse_args():
@@ -33,7 +39,7 @@ def create_hash_from_dict(d):
     return result_name
 
 
-def save_results(root_dir, result, config, result_id):
+def save_results(root_dir, result, model_name, config, result_id):
 
     # check if results directory exists
     if not os.path.exists(f"{root_dir}/results/raw/{result_id}"):
@@ -44,6 +50,57 @@ def save_results(root_dir, result, config, result_id):
         pickle.dump(result, f)
     
     # save config
+    config_to_be_saved = deepcopy(config)
+    config_to_be_saved["model"] = model_name
+    config_to_be_saved["dataset"] = config_to_be_saved.pop("dataset_name")
     config_path = os.path.join(root_dir,"results", "raw", result_id, "config.json")
     with open(config_path, "w") as f:
-        json.dump(config, f, indent=4, sort_keys=True)
+        json.dump(config_to_be_saved, f, indent=4, sort_keys=True)
+
+def collect_results(root_dir, results_ids):
+
+    # check if results directory exists
+    if len(results_ids) == 0:
+        print("No results found!")
+        return
+    
+    results = []
+    raw_results = results_ids
+    for raw_result in tqdm(raw_results, leave=False):
+        with open(f"{root_dir}/results/raw/{raw_result}/config.json", "r") as f:
+            config = json.load(f)
+        with open(f"{root_dir}/results/raw/{raw_result}/results.pkl", "rb") as f:
+            result = pickle.load(f)
+
+        true_labels = result["true_labels"]
+        rs = np.random.RandomState(config["random_state"])
+        for _ in range(100): # bootstraping in test
+            for key in ["original_probs", "probs_rescaled_train_queries"]:
+                this_result = {k: v for k, v in deepcopy(config).items() if k != "content_free_inputs"}
+                predictions = np.argmax(result[key], axis=1)
+                acc = compute_accuracy(true_labels, predictions, random_state=rs)
+                this_result["output_prob_type"] = key
+                this_result["acc"] = acc
+                results.append(this_result)
+            for cf_probs in result["cf_probs"]:
+                this_result = {k: v for k, v in deepcopy(config).items() if k != "content_free_inputs"}
+                predictions = np.argmax(cf_probs["rescaled_probs"], axis=1)
+                acc = compute_accuracy(true_labels, predictions, random_state=rs)
+                this_result["output_prob_type"] = f"content_free_{cf_probs['inputs']}"
+                this_result["acc"] = acc
+                results.append(this_result)
+    
+    # save results
+    df_results = pd.DataFrame.from_records(results)
+    df_results.to_csv(f"{root_dir}/results/acc_results.csv", index=False)
+    df_results.groupby(["model", "dataset", "eval_split", "n_shots", "output_prob_type"]).agg({
+        "acc": ["mean", "std"], 
+    }).to_html(f"{root_dir}/results/results.html")
+    
+
+def compute_accuracy(true_labels, predictions, random_state=0):
+    df_boots = pd.DataFrame({"true_labels": true_labels, "predictions": predictions}).sample(
+        frac=1, replace=True, random_state=random_state
+    )
+    return accuracy_score(df_boots["true_labels"], df_boots["predictions"])
+

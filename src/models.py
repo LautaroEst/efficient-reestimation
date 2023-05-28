@@ -110,15 +110,18 @@ class HFLanguageModel:
             if not os.path.exists(model_dir):
                 os.makedirs(model_dir)
             try:
+                config = AutoConfig.from_pretrained(self.model_name, cache_dir=model_dir, local_files_only=True)
                 with init_empty_weights():
-                    config = AutoConfig.from_pretrained(self.model_name, cache_dir=model_dir, local_files_only=True)
                     model = AutoModelForCausalLM.from_config(config)
-                    model.config.pad_token_id = model.config.eos_token_id
+                model.config.pad_token_id = model.config.eos_token_id
+                model.tie_weights()
                 device_map = infer_auto_device_map(model, max_memory={0: "10GiB", "cpu": "30GiB"})
-                model = load_checkpoint_and_dispatch(model, model_dir, device_map=device_map)
+                model = load_checkpoint_and_dispatch(
+                    model, model_dir, device_map=device_map, no_split_module_classes=["GPT2Block"]
+                )
                 model.eval()
 
-                tokenizer = AutoTokenizer.from_pretrained(self.model_name, cache_dir=model_dir, local_files_only=True)
+                tokenizer = AutoTokenizer.from_pretrained(model_dir, cache_dir=model_dir, local_files_only=True)
                 tokenizer.padding_side = "left"
                 tokenizer.pad_token = tokenizer.eos_token
                 
@@ -157,18 +160,22 @@ class HFLanguageModel:
 
         """
         encoded_input = self.tokenizer(prompts_batch, return_tensors="pt", padding=True)
-        prompt_lengths = encoded_input["attention_mask"].sum(dim=1)
+        # prompt_lengths = encoded_input["attention_mask"].sum(dim=1)
         labels_probs = torch.zeros(len(prompts_batch), len(labels_dict))
 
         with torch.no_grad():
             for idx, label_list in labels_dict.items():
                 probs = torch.zeros(len(prompts_batch),1)
                 for label in label_list:
+                    label_start_idx = sum(self.tokenizer(" " + label)["attention_mask"])
                     prompts = [prompt + " " + label for prompt in prompts_batch]
                     encoded_input = self.tokenizer(prompts, return_tensors="pt", padding=True)
                     logits = self.model(**encoded_input).logits
-                    all_probs = torch.softmax(logits[:, prompt_lengths-1:-1], dim=-1)
-                    probs += torch.gather(all_probs, dim=-1, index=encoded_input["input_ids"][:, prompt_lengths:].unsqueeze(-1)).sum(dim=1).cpu()
+                    probs += torch.gather(
+                        torch.softmax(logits[:,-label_start_idx-1:-1,:], dim=-1), 
+                        dim=-1, 
+                        index=encoded_input["input_ids"][:, -label_start_idx:].unsqueeze(-1)
+                    ).squeeze(-1)
                 labels_probs[:, idx] = probs[:, 0]
             labels_logprobs = torch.log(labels_probs).numpy()
         return labels_logprobs

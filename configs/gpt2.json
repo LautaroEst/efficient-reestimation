@@ -1,11 +1,11 @@
 {
     "random_state": 2876453,
     "n_seeds": 5,
-    "datasets": ["agnews", "trec", "cb", "rte", "sst2", "dbpedia"],
-    "n_shots": [0, 1, 4, 8],
+    "datasets": ["agnews"],
+    "n_shots": [8],
 
     "model": "gpt2",
     "eval_split": "test",
     "content_free_inputs": ["[MASK]","N/A",""],
-    "num_train_samples": 10
+    "num_train_samples": 100
 }

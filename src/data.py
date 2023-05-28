@@ -201,6 +201,16 @@ def load_rte(root_dir):
 
 class ClassificationDataset:
 
+    DATASETS = ["agnews", "trec", "cb", "rte", "sst2", "dbpedia"]
+    dataset2short = {
+        "agnews": "AGNews",
+        "trec": "TREC",
+        "cb": "CB",
+        "rte": "RTE",
+        "sst2": "SST-2",
+        "dbpedia": "DBPedia"
+    }
+
     def __init__(self,root_dir,dataset="agnews",n_shot=2,random_state=None):
         self.root_dir = root_dir
         self.dataset = dataset
@@ -377,11 +387,13 @@ class ClassificationDataset:
         pbar = tqdm(range(0, num_samples, batch_size),total=num_samples//batch_size, leave=False, desc=f"")
         for i in pbar:
             batch_idx = test_idx[i:i+batch_size]
-            batch = {'prompt': [], 'label': []}
+            batch = {'prompt': [], 'label': [], 'query': []}
             for idx in batch_idx:
-                prompt = self.construct_prompt_with_train_shots(all_sentences[idx], prompt_func=prompt_func)
+                query = all_sentences[idx]
+                prompt = self.construct_prompt_with_train_shots(query, prompt_func=prompt_func)
                 batch['prompt'].append(prompt)
                 batch['label'].append(all_labels[idx])
+                batch['query'].append(query)
             yield batch
 
 
