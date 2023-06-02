@@ -19,7 +19,7 @@ def main():
     )
     test_sentence = 'DEFOE DRIVES SPURS HOME. Jermain Defoe underlined his claims for an improved contract as he inspired Tottenham to a 2-0 win against 10-man Middlesbrough. New coach Martin Jol, who secured his first win in charge, may have been helped '
     gold_probs = {' World': -3.681288719177246, ' Sports': -5.388176441192627, ' Business': -5.5484514236450195, ' Technology': -6.235733985900879}
-    test_prompt = dataset.construct_prompt_with_train_shots(test_sentence)
+    test_prompt, truncated = dataset.construct_prompt_with_train_shots(test_sentence)
     for batch in dataset.random_batch_loader_from_split(split="test", num_samples=None, batch_size=1):
         if batch["prompt"][0] != test_prompt:
             continue
@@ -27,6 +27,8 @@ def main():
         break
     print([(v, logprobs[0,k]) for k, v in dataset.label_dict.items()])
     print(gold_probs)
+    wt = model.tokenizer(" Sports", return_tensors="pt")
+    print(wt)
 
     content_free_input_probs = get_content_free_input_probs(
         model, 

@@ -1,0 +1,108 @@
+{
+    "random_state": 2349876,
+    "n_seeds": 5,
+
+    "model": "gpt2-xl",
+
+    "datasets": {
+        "cb": [
+            {
+                "n_shots": 8,
+                "max_memory": {"cuda:0": "2GiB", "cpu": "30GiB"},
+                "batch_size": 2
+            },{
+                "n_shots": 0,
+                "max_memory": {"cuda:0": "10GiB", "cpu": "30GiB"},
+                "batch_size": 8
+            },{
+                "n_shots": 1,
+                "max_memory": {"cuda:0": "10GiB", "cpu": "30GiB"},
+                "batch_size": 4
+            },{
+                "n_shots": 4,
+                "max_memory": {"cuda:0": "10GiB", "cpu": "30GiB"},
+                "batch_size": 2
+            }
+        ],
+        "trec": [
+            {
+                "n_shots": 0,
+                "max_memory": {"cuda:0": "10GiB", "cpu": "30GiB"},
+                "batch_size": 32
+            },{
+                "n_shots": 1,
+                "max_memory": {"cuda:0": "10GiB", "cpu": "30GiB"},
+                "batch_size": 16
+            },{
+                "n_shots": 4,
+                "max_memory": {"cuda:0": "10GiB", "cpu": "30GiB"},
+                "batch_size": 16
+            },{
+                "n_shots": 8,
+                "max_memory": {"cuda:0": "10GiB", "cpu": "30GiB"},
+                "batch_size": 8
+            }
+        ],
+        "rte": [
+            {
+                "n_shots": 0,
+                "max_memory": {"cuda:0": "10GiB", "cpu": "30GiB"},
+                "batch_size": 8
+            },{
+                "n_shots": 1,
+                "max_memory": {"cuda:0": "10GiB", "cpu": "30GiB"},
+                "batch_size": 8
+            },{
+                "n_shots": 4,
+                "max_memory": {"cuda:0": "10GiB", "cpu": "30GiB"},
+                "batch_size": 4
+            },{
+                "n_shots": 8,
+                "max_memory": {"cuda:0": "2GiB", "cpu": "30GiB"},
+                "batch_size": 2
+            }
+        ],
+        "sst2": [
+            {
+                "n_shots": 0,
+                "max_memory": {"cuda:0": "10GiB", "cpu": "30GiB"},
+                "batch_size": 32
+            },{
+                "n_shots": 1,
+                "max_memory": {"cuda:0": "10GiB", "cpu": "30GiB"},
+                "batch_size": 16
+            },{
+                "n_shots": 4,
+                "max_memory": {"cuda:0": "10GiB", "cpu": "30GiB"},
+                "batch_size": 16
+            },{
+                "n_shots": 8,
+                "max_memory": {"cuda:0": "10GiB", "cpu": "30GiB"},
+                "batch_size": 8
+            }
+        ],
+        "agnews": [
+            {
+                "n_shots": 0,
+                "max_memory": {"cuda:0": "10GiB", "cpu": "30GiB"},
+                "batch_size": 8
+            },{
+                "n_shots": 1,
+                "max_memory": {"cuda:0": "10GiB", "cpu": "30GiB"},
+                "batch_size": 8
+            },{
+                "n_shots": 4,
+                "max_memory": {"cuda:0": "10GiB", "cpu": "30GiB"},
+                "batch_size": 4
+            },{
+                "n_shots": 8,
+                "max_memory": {"cuda:0": "10GiB", "cpu": "30GiB"},
+                "batch_size": 4
+            }
+        ]
+    },
+    "eval_split": "test",
+
+    "content_free_inputs": [["[MASK]","N/A",""], ["idk"]],
+    "num_train_samples": 100
+}

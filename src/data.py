@@ -211,8 +211,9 @@ class ClassificationDataset:
         "dbpedia": "DBPedia"
     }
 
-    def __init__(self,root_dir,dataset="agnews",n_shot=2,random_state=None):
+    def __init__(self,root_dir,tokenizer,dataset="agnews",n_shot=2,random_state=None):
         self.root_dir = root_dir
+        self.tokenizer = tokenizer
         self.dataset = dataset
         self._load_data(dataset)
         self.n_shot = n_shot
@@ -246,6 +247,9 @@ class ClassificationDataset:
             self.num_user_input = None
             self.task_format = 'classification'
             self.num_tokens_to_predict = 1
+            self.description = "4-class News Topic Classification"
+            self.test_samples = {"/".join(label): pd.Series(self._data["test_labels"]).value_counts()[idx] for idx, label in self.label_dict.items()}
+
 
         elif dataset == "trec":
             self._data = load_trec(self.root_dir)
@@ -257,6 +261,9 @@ class ClassificationDataset:
             self.num_user_input = None
             self.task_format = 'classification'
             self.num_tokens_to_predict = 1
+            self.description = "6-class Question Classification"
+            self.test_samples = {"/".join(label): pd.Series(self._data["test_labels"]).value_counts()[idx] for idx, label in self.label_dict.items()}
+            
 
         elif dataset == "cb":
             self._data = get_cb(self.root_dir)
@@ -268,6 +275,9 @@ class ClassificationDataset:
             self.num_user_input = None
             self.task_format = 'classification'
             self.num_tokens_to_predict = 1
+            self.description = "3-class Textual Entailment"
+            self.test_samples = {"/".join(label): pd.Series(self._data["test_labels"]).value_counts()[idx] for idx, label in self.label_dict.items()}
+            
 
         elif dataset == "rte":
             self._data = load_rte(self.root_dir)
@@ -279,6 +289,9 @@ class ClassificationDataset:
             self.num_user_input = 2
             self.task_format = 'classification'
             self.num_tokens_to_predict = 1
+            self.description = "2-class Textual Entailment"
+            self.test_samples = {"/".join(label): pd.Series(self._data["test_labels"]).value_counts()[idx] for idx, label in self.label_dict.items()}
+            
 
         elif dataset == "sst2":
             self._data = load_sst2(self.root_dir)
@@ -290,6 +303,9 @@ class ClassificationDataset:
             self.num_user_input = None
             self.task_format = 'classification'
             self.num_tokens_to_predict = 1
+            self.description = "2-class Sentiment Analysis"
+            self.test_samples = {"/".join(label): pd.Series(self._data["test_labels"]).value_counts()[idx] for idx, label in self.label_dict.items()}
+            
 
         elif self.dataset == "dbpedia":
             self._data = load_dbpedia(self.root_dir)
@@ -301,6 +317,9 @@ class ClassificationDataset:
             self.num_user_input = None
             self.task_format = 'classification'
             self.num_tokens_to_predict = 1
+            self.description = "14-class Document Classification"
+            self.test_samples = {"/".join(label): pd.Series(self._data["test_labels"]).value_counts()[idx] for idx, label in self.label_dict.items()}
+            
         else:
             raise NotImplementedError
         
@@ -323,7 +342,7 @@ class ClassificationDataset:
             )
 
         # take the prompt template and fill in the training and test example
-        # MAX_CHARS_PER_SENTENCE = 2500 // (len(train_sentences) + 1) # 2500 is the max number of tokens allowed in the model multiplied by 2.5 (appox, chars per token)
+        # MAX_CHARS_PER_SENTENCE = 4000 // (len(train_sentences) + 1) # 8000 is the max number of tokens allowed in the model multiplied by 8 (appox, chars per token)
         prompt = self.prompt_prefix
         q_prefix = self.q_prefix
         a_prefix = self.a_prefix
@@ -352,8 +371,22 @@ class ClassificationDataset:
 
     def construct_prompt_with_train_shots(self, sentence, prompt_func=None):
         prompt = self.construct_prompt(self.prompt_shots_sentences, self.prompt_shots_labels, sentence, prompt_func=prompt_func)
-        return prompt
-
+        query_truncated = False
+        shots_truncated = False
+        original_sentence = sentence
+        while sum(self.tokenizer(prompt,return_tensors=None,padding=False,truncation=False)["attention_mask"]) > self.tokenizer.model_max_length - 5:
+            query_truncated = True
+            sentence = sentence[:-10]
+            if len(sentence) < 40:
+                sentence = original_sentence
+                prompt_shots_sentences = self.prompt_shots_sentences
+                while sum(self.tokenizer(prompt,return_tensors=None,padding=False,truncation=False)["attention_mask"]) > self.tokenizer.model_max_length - 5:
+                    shots_truncated = True
+                    prompt_shots_sentences = [s[:-10] for s in prompt_shots_sentences]
+                    sentence = sentence[:-10]
+                    prompt = self.construct_prompt(prompt_shots_sentences, self.prompt_shots_labels, sentence, prompt_func=prompt_func)        
+            prompt = self.construct_prompt(self.prompt_shots_sentences, self.prompt_shots_labels, sentence, prompt_func=prompt_func)
+        return prompt, query_truncated, shots_truncated
 
     def random_batch_loader_from_split(self,split="test",num_samples=100,batch_size=32):
         if split == "test":
@@ -383,43 +416,18 @@ class ClassificationDataset:
         else:
             num_samples = min(num_samples,total_samples)
         test_idx = self._rs.permutation(total_samples)[:num_samples]
+        test_idx = sorted(test_idx, key=lambda x: len(all_sentences[x]), reverse=True) # sort by length of sentence
 
         pbar = tqdm(range(0, num_samples, batch_size),total=num_samples//batch_size, leave=False, desc=f"")
         for i in pbar:
             batch_idx = test_idx[i:i+batch_size]
-            batch = {'prompt': [], 'label': [], 'query': []}
+            batch = {'prompt': [], 'label': [], 'query': [], 'query_truncated': [], 'shots_truncated': []}
             for idx in batch_idx:
                 query = all_sentences[idx]
-                prompt = self.construct_prompt_with_train_shots(query, prompt_func=prompt_func)
+                prompt, query_truncated, shots_truncated  = self.construct_prompt_with_train_shots(query, prompt_func=prompt_func)
                 batch['prompt'].append(prompt)
+                batch['query_truncated'].append(query_truncated)
+                batch['shots_truncated'].append(shots_truncated)
                 batch['label'].append(all_labels[idx])
                 batch['query'].append(query)
             yield batch
-
-
-    
-
-
-    # def batch_iter(self,split="test",num_eval=100,batch_size=32):
-    #     if split == "test":
-    #         num_samples = len(self._data["test_sentences"])
-    #     elif split == "dev":
-    #         num_samples = len(self._data["dev_sentences"])
-    #     elif split == "train":
-    #         num_samples = len(self._data["train_sentences"])
-
-    #     if num_eval is None:
-    #         num_eval = num_samples
-    #     else:
-    #         num_eval = min(num_eval,num_samples)
-    #     test_idx = self._rs.permutation(num_samples)[:num_eval]
-
-    #     pbar = tqdm(range(0, num_eval, batch_size),total=num_eval//batch_size, leave=False, desc=f"Running on {split}")
-    #     for i in pbar:
-    #         batch_idx = test_idx[i:i+batch_size]
-    #         batch = {'prompt': [], 'label': []}
-    #         for idx in batch_idx:
-    #             sample = self.sample(idx,split)
-    #             batch['prompt'].append(sample['prompt'])
-    #             batch['label'].append(sample['label'])
-    #         yield batch
