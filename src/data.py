@@ -374,18 +374,19 @@ class ClassificationDataset:
         query_truncated = False
         shots_truncated = False
         original_sentence = sentence
-        while sum(self.tokenizer(prompt,return_tensors=None,padding=False,truncation=False)["attention_mask"]) > self.tokenizer.model_max_length - 5:
-            query_truncated = True
-            sentence = sentence[:-10]
-            if len(sentence) < 40:
-                sentence = original_sentence
-                prompt_shots_sentences = self.prompt_shots_sentences
-                while sum(self.tokenizer(prompt,return_tensors=None,padding=False,truncation=False)["attention_mask"]) > self.tokenizer.model_max_length - 5:
-                    shots_truncated = True
-                    prompt_shots_sentences = [s[:-10] for s in prompt_shots_sentences]
-                    sentence = sentence[:-10]
-                    prompt = self.construct_prompt(prompt_shots_sentences, self.prompt_shots_labels, sentence, prompt_func=prompt_func)        
-            prompt = self.construct_prompt(self.prompt_shots_sentences, self.prompt_shots_labels, sentence, prompt_func=prompt_func)
+        if self.tokenizer is not None:
+            while sum(self.tokenizer(prompt,return_tensors=None,padding=False,truncation=False)["attention_mask"]) > self.tokenizer.model_max_length - 5:
+                query_truncated = True
+                sentence = sentence[:-10]
+                if len(sentence) < 40:
+                    sentence = original_sentence
+                    prompt_shots_sentences = self.prompt_shots_sentences
+                    while sum(self.tokenizer(prompt,return_tensors=None,padding=False,truncation=False)["attention_mask"]) > self.tokenizer.model_max_length - 5:
+                        shots_truncated = True
+                        prompt_shots_sentences = [s[:-10] for s in prompt_shots_sentences]
+                        sentence = sentence[:-10]
+                        prompt = self.construct_prompt(prompt_shots_sentences, self.prompt_shots_labels, sentence, prompt_func=prompt_func)        
+                prompt = self.construct_prompt(self.prompt_shots_sentences, self.prompt_shots_labels, sentence, prompt_func=prompt_func)
         return prompt, query_truncated, shots_truncated
 
     def random_batch_loader_from_split(self,split="test",num_samples=100,batch_size=32):

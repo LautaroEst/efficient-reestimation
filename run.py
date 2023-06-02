@@ -90,7 +90,7 @@ def run(
         random_state=random_state
     )
 
-    # Obtain the plain (unnormed) log-probabilities for each label
+    # Obtain the plain (unnormed) probabilities for each label
     true_labels, original_probs, test_queries, queries_truncated, shots_truncated = get_original_unnormalized_logprobs(
         model, 
         dataset, 
@@ -99,7 +99,7 @@ def run(
         batch_size=batch_size
     )
 
-    # Obtain the log-probabilities for each label when using content-free inputs
+    # Obtain the probabilities for each label when using content-free inputs
     cf_probs = []
     for cf_in in content_free_inputs:
         content_free_input_probs = get_content_free_input_probs(
@@ -114,7 +114,7 @@ def run(
             "rescaled_probs": transform_probs(original_probs, content_free_input_probs)
         })
 
-    # Obtain the log-probabilities for each label when using train samples as inputs
+    # Obtain the probabilities for each label when using train samples as inputs
     train_queries_probs = get_train_queries_probs(
         model,
         dataset,

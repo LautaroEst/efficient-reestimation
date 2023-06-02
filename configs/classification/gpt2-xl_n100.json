@@ -7,10 +7,6 @@
     "datasets": {
         "cb": [
             {
-                "n_shots": 8,
-                "max_memory": {"cuda:0": "2GiB", "cpu": "30GiB"},
-                "batch_size": 2
-            },{
                 "n_shots": 0,
                 "max_memory": {"cuda:0": "10GiB", "cpu": "30GiB"},
                 "batch_size": 8
@@ -21,6 +17,10 @@
             },{
                 "n_shots": 4,
                 "max_memory": {"cuda:0": "10GiB", "cpu": "30GiB"},
+                "batch_size": 2
+            },{
+                "n_shots": 8,
+                "max_memory": {"cuda:0": "2GiB", "cpu": "30GiB"},
                 "batch_size": 2
             }
         ],
@@ -74,7 +74,7 @@
             },{
                 "n_shots": 4,
                 "max_memory": {"cuda:0": "10GiB", "cpu": "30GiB"},
-                "batch_size": 16
+                "batch_size": 8
             },{
                 "n_shots": 8,
                 "max_memory": {"cuda:0": "10GiB", "cpu": "30GiB"},

@@ -7,7 +7,7 @@ import numpy as np
 
 def create_model(root_dir, model="text-davinci-003", max_memory=None):
     if model in GPT3LanguageModel.MODELS:
-        return GPT3LanguageModel(root_dir, model_name=model)
+        return GPT3LanguageModel(root_dir, model_name=model, max_memory=max_memory)
     elif model in HFLanguageModel.MODELS:
         return HFLanguageModel(root_dir, model_name=model, max_memory=max_memory)
     raise ValueError(f"Model {model} not supported.")
@@ -24,12 +24,14 @@ class GPT3LanguageModel:
         "text-ada-001"
     ]
 
-    def __init__(self, root_dir, model_name="text-davinci-003"):
+    def __init__(self, root_dir, model_name="text-davinci-003", max_memory=None):
         self.root_dir = root_dir
         self.model_name = model_name
+        self.max_memory = max_memory
         self._setup_model()
 
     def _setup_model(self):
+        self.tokenizer = None
         if self.model_name in self.MODELS:
             with open(os.path.join(self.root_dir, 'openai_key.txt'), 'r') as f:
                 key = f.readline().strip()
