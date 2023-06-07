@@ -4,13 +4,16 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from accelerate import init_empty_weights, infer_auto_device_map, load_checkpoint_and_dispatch
 import torch
 import numpy as np
+import sys
+import time
 
 def create_model(root_dir, model="text-davinci-003", max_memory=None):
     if model in GPT3LanguageModel.MODELS:
         return GPT3LanguageModel(root_dir, model_name=model, max_memory=max_memory)
     elif model in HFLanguageModel.MODELS:
         return HFLanguageModel(root_dir, model_name=model, max_memory=max_memory)
-    raise ValueError(f"Model {model} not supported.")
+    else:
+        raise ValueError(f"Model {model} not supported.")
 
 
 
@@ -34,9 +37,38 @@ class GPT3LanguageModel:
         self.tokenizer = None
         if self.model_name in self.MODELS:
             with open(os.path.join(self.root_dir, 'openai_key.txt'), 'r') as f:
-                key = f.readline().strip()
-                openai.api_key = key
-        raise ValueError(f"Model {self.model_name} not supported.")
+                for line in f.readlines():
+                    if line.startswith("key: "):
+                        key = line.split(": ")[1].strip()
+                        openai.api_key = key
+        else:
+            raise ValueError(f"Model {self.model_name} not supported.")
+    
+    def _complete_gpt3(self, prompt, logprobs=0, temperature=0, max_tokens=0, top_p=1, echo=True):
+        response = None
+        received = False
+        while not received:
+            try:
+                response = openai.Completion.create(
+                    model=self.model_name,
+                    prompt=prompt,
+                    logprobs=logprobs,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    top_p=top_p,
+                    echo=echo
+                )
+                received = True
+            except:
+                error = sys.exc_info()[0]
+                if error == openai.error.InvalidRequestError: 
+                    print(f"InvalidRequestError\nPrompt passed in:\n\n{prompt}\n\n")
+                    assert False
+
+                print("API error:", error)
+                time.sleep(1)
+
+        return response
     
     def get_label_probs(self, prompts_batch, labels_dict):
         """
@@ -80,15 +112,7 @@ class GPT3LanguageModel:
             for label_idx, label_list in labels_dict.items():
                 for label in label_list:
                     prompt = f"{prompt} {label}"
-                    completiton = openai.Completion.create(
-                        model=self.model_name,
-                        prompt=prompt,
-                        logprobs=0,
-                        temperature=0,
-                        max_tokens=0,
-                        top_p=1,
-                        echo=True
-                    )
+                    completiton = self._complete_gpt3(prompt, logprobs=0, temperature=0, max_tokens=0, top_p=1, echo=True)
                     logprob = completiton["choices"][0]["logprobs"]["token_logprobs"][-1]
                     labels_probs[prompt_idx, label_idx] += np.exp(logprob)
         return labels_probs
@@ -127,7 +151,7 @@ class HFLanguageModel:
                     model, model_dir, device_map=device_map, no_split_module_classes=["GPT2Block"]
                 )
                 model.eval()
-
+                
                 tokenizer = AutoTokenizer.from_pretrained(model_dir, cache_dir=model_dir, local_files_only=True)
                 tokenizer.padding_side = "left"
                 tokenizer.pad_token = tokenizer.eos_token
@@ -166,8 +190,8 @@ class HFLanguageModel:
             The probability P(label|prompt) of the label given the prompt.
 
         """
-        labels_probs = torch.zeros(len(prompts_batch), len(labels_dict))
         with torch.no_grad():
+            labels_probs = torch.zeros(len(prompts_batch), len(labels_dict), device=self.model.device)
             for idx, label_list in labels_dict.items():
                 probs = torch.zeros(len(prompts_batch),1, device=self.model.device)
                 for label in label_list:
@@ -175,13 +199,20 @@ class HFLanguageModel:
                     prompts = [f"{prompt} {label}" for prompt in prompts_batch]
                     encoded_input = self.tokenizer(prompts, return_tensors="pt", padding=True)
                     encoded_input = {k: v.to(self.model.device) for k, v in encoded_input.items()}
+                    encoded_input["position_ids"] = self.create_position_ids(encoded_input["attention_mask"])
                     logits = self.model(**encoded_input).logits
-                    probs += torch.gather(
-                        torch.softmax(logits[:,-label_start_idx-1:-1,:], dim=-1), 
+                    probs += torch.exp(torch.gather(
+                        torch.log_softmax(logits[:,-label_start_idx-1:-1,:], dim=-1),
                         dim=-1, 
                         index=encoded_input["input_ids"][:, -label_start_idx:].unsqueeze(-1)
-                    ).squeeze(-1)
-                labels_probs[:, idx] = probs[:, 0].cpu()
-            labels_probs = labels_probs.numpy()
+                    ).squeeze(-1).sum(dim=-1, keepdim=True))
+                labels_probs[:, idx] = probs[:, 0]
+            labels_probs = labels_probs.cpu().numpy()
         return labels_probs
+
+    @staticmethod
+    def create_position_ids(attention_mask):
+        position_ids = torch.cumsum(attention_mask, dim=1).long() - 1
+        position_ids.masked_fill_(position_ids < 0, 0)
+        return position_ids
 

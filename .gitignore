@@ -1,6 +1,9 @@
 /results*/
+/results.gpt3.zip
 /data
 /models
+/cb_gpt2-xl_0shot_None_subsample_seed0.pkl
+/openai_key.txt
 
 *.pyc
 /.vscode

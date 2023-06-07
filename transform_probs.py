@@ -1,5 +1,6 @@
 
 import os
+import pickle
 import numpy as np
 from src.utils import parse_classification_args, create_hash_from_dict, save_results
 from src.data import ClassificationDataset
@@ -61,6 +62,7 @@ def main():
                     num_train_samples=config["num_train_samples"],
                     batch_size=n_shots_config["batch_size"],
                     random_state=seed,
+                    result_id=result_id
                 )
                 save_results(root_dir, result, config, result_id)
             
@@ -79,6 +81,7 @@ def run(
     num_train_samples = 1000,
     batch_size = 16,
     random_state = None,
+    result_id = None
 ):
     
     # Instantiate dataset
@@ -90,24 +93,29 @@ def run(
         random_state=random_state
     )
 
-    # Obtain the plain (unnormed) probabilities for each label
-    true_labels, original_probs, test_queries, queries_truncated, shots_truncated = get_original_unnormalized_probs(
-        model, 
-        dataset, 
-        eval_split=eval_split, 
-        num_samples=None,
-        batch_size=batch_size
-    )
+    # # Obtain the plain (unnormed) probabilities for each label
+    # true_labels, original_probs, test_queries, queries_truncated, shots_truncated = get_original_unnormalized_logprobs(
+    #     model, 
+    #     dataset, 
+    #     eval_split=eval_split, 
+    #     num_samples=None,
+    #     batch_size=batch_size
+    # )
+
+    with open(f"results.bad.transformed.probs/raw/{result_id}/results.pkl", "rb") as f:
+        results = pickle.load(f)
+    original_probs = results["original_probs"]
 
     # Obtain the probabilities for each label when using content-free inputs
     cf_probs = []
-    for cf_in in content_free_inputs:
-        content_free_input_probs = get_content_free_input_probs(
-            model, 
-            dataset, 
-            cf_in,
-            batch_size=batch_size
-        )
+    for i, cf_in in enumerate(content_free_inputs):
+        # content_free_input_probs = get_content_free_input_probs(
+        #     model, 
+        #     dataset, 
+        #     cf_in,
+        #     batch_size=batch_size
+        # )
+        content_free_input_probs = results["cf_probs"][i]["probs"]
         cf_probs.append({
             "inputs": cf_in,
             "probs": content_free_input_probs,
@@ -115,27 +123,31 @@ def run(
         })
 
     # Obtain the probabilities for each label when using train samples as inputs
-    train_queries_probs = get_train_queries_probs(
-        model,
-        dataset,
-        num_train_samples=num_train_samples, 
-        batch_size=batch_size
-    )
+    # train_queries_probs = get_train_queries_probs(
+    #     model,
+    #     dataset,
+    #     num_train_samples=num_train_samples, 
+    #     batch_size=batch_size
+    # )
+    train_queries_probs = results["train_queries_probs"]
     probs_rescaled_train_queries = transform_probs(original_probs, train_queries_probs)
 
-    results = {
-        "true_labels": true_labels,
-        "original_probs": original_probs,
-        "test_queries": test_queries,
-        "queries_truncated": queries_truncated,
-        "shots_truncated": shots_truncated,
+    
+    
+
+    new_results = {
+        "true_labels": results["true_labels"],
+        "original_probs": results["original_probs"],
+        "test_queries": results["test_queries"],
+        "queries_truncated": results["queries_truncated"],
+        "shots_truncated": results["shots_truncated"],
         "prompt_shots_sentences": dataset.prompt_shots_sentences,
         "prompt_shots_labels": dataset.prompt_shots_labels,
-        "train_queries_probs": train_queries_probs,
+        "train_queries_probs": results["train_queries_probs"],
         "probs_rescaled_train_queries": probs_rescaled_train_queries,
         "cf_probs": cf_probs,
     }
-    return results
+    return new_results
 
 
 

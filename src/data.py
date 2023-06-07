@@ -389,7 +389,7 @@ class ClassificationDataset:
                 prompt = self.construct_prompt(self.prompt_shots_sentences, self.prompt_shots_labels, sentence, prompt_func=prompt_func)
         return prompt, query_truncated, shots_truncated
 
-    def random_batch_loader_from_split(self,split="test",num_samples=100,batch_size=32):
+    def random_batch_loader_from_split(self,split="test",num_samples=100,batch_size=32, prompt_func=None):
         if split == "test":
             all_sentences = self._data['test_sentences']
             all_labels = self._data['test_labels']
@@ -399,12 +399,13 @@ class ClassificationDataset:
         elif split == "train":
             all_sentences = self._data['train_sentences']
             all_labels = self._data['train_labels']
-        return self._batch_iter(all_sentences, all_labels, num_samples=num_samples, batch_size=batch_size)
+        
+        return self._batch_iter(all_sentences, all_labels, num_samples=num_samples, batch_size=batch_size, prompt_func=prompt_func)
     
 
-    def random_batch_loader_from_list(self, data, num_samples=None, batch_size=32):
+    def random_batch_loader_from_list(self, data, num_samples=None, batch_size=32, prompt_func=None):
         fictional_labels = [0] * len(data)
-        for batch in self._batch_iter(data, fictional_labels, num_samples=num_samples, batch_size=batch_size):
+        for batch in self._batch_iter(data, fictional_labels, num_samples=num_samples, batch_size=batch_size, prompt_func=prompt_func):
             prompt = batch['prompt']
             yield prompt
 
