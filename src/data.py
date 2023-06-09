@@ -238,7 +238,12 @@ class ClassificationDataset:
 
     def _load_data(self,dataset="agnews"):
         if dataset == "agnews":
-            self._data = load_agnews(self.root_dir)
+            data = load_agnews(self.root_dir)
+            rs = np.random.RandomState(0)
+            test_idx = rs.permutation(len(data['test_sentences']))[:1000]
+            data["test_sentences"] = [data["test_sentences"][idx] for idx in test_idx]
+            data["test_labels"] = [data["test_labels"][idx] for idx in test_idx]
+            self._data = data
             self.prompt_prefix = "Classify the news articles into the categories of World, Sports, Business, and Technology.\n\n"
             self.q_prefix = "Article: "
             self.a_prefix = "Answer: "
@@ -308,7 +313,12 @@ class ClassificationDataset:
             
 
         elif self.dataset == "dbpedia":
-            self._data = load_dbpedia(self.root_dir)
+            data = load_dbpedia(self.root_dir)
+            rs = np.random.RandomState(1)
+            test_idx = rs.permutation(len(data['test_sentences']))[:1000]
+            data["test_sentences"] = [data["test_sentences"][idx] for idx in test_idx]
+            data["test_labels"] = [data["test_labels"][idx] for idx in test_idx]
+            self._data = data
             self.prompt_prefix = "Classify the documents based on whether they are about a Company, School, Artist, Athlete, Politician, Transportation, Building, Nature, Village, Animal, Plant, Album, Film, or Book.\n\n"
             self.q_prefix = "Article: "
             self.a_prefix = "Answer: "

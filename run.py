@@ -38,10 +38,7 @@ def main():
         for i, n_shots_config in enumerate(pbar_nshots):
             config["n_shots"] = n_shots_config["n_shots"]
             pbar_nshots.set_description(f"{n_shots_config['n_shots']}-shot")
-
-            # Instantiate model
-            model = create_model(root_dir, model=model_name, max_memory=n_shots_config["max_memory"])
-        
+       
             # For each seed
             pbar_seeds = tqdm(seeds[i], leave=False, total=n_seeds)
             for seed in pbar_seeds:
@@ -51,6 +48,9 @@ def main():
                 results_ids.append(result_id)
                 if os.path.exists(f"{root_dir}/results/raw/{result_id}") and use_saved_results:
                     continue
+
+                # Instantiate model
+                model = create_model(root_dir, model=model_name, max_memory=n_shots_config["max_memory"])
                 result = run(
                     root_dir=root_dir, 
                     model=model, 
@@ -62,9 +62,8 @@ def main():
                     batch_size=n_shots_config["batch_size"],
                     random_state=seed,
                 )
-                save_results(root_dir, result, config, result_id)
-            
-            del model
+                save_results(root_dir, result, config, result_id, subdir="raw", results_name="results")
+                del model
 
     print("All runs finished!")
 

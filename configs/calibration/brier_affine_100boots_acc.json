@@ -1,0 +1,9 @@
+{
+    "metric": "Brier",
+    "calmethod": "AffineCalLogLoss",
+    "use_bias": true, 
+    "deploy_priors": null, 
+    "cross_val": false,
+    "bootstrap": 100,
+    "score": "accuracy"
+}

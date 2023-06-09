@@ -1,45 +1,64 @@
 
+from tqdm import tqdm
+import json
+import pickle
+from copy import deepcopy
 
-import os
 import numpy as np
-from src.utils import parse_collect_results_args, create_hash_from_dict, collect_results
+import pandas as pd
+
+from src.utils import parse_collect_results_args, get_results_ids_from_config, compute_score
 
 
 
 def main():
     root_dir, experiment_config, experiment_name, results_config = parse_collect_results_args()
-    results_ids = get_results_ids(root_dir, experiment_config)
+    results_ids = get_results_ids_from_config(root_dir, experiment_config)
     print(f"Collecting results for {experiment_name} experiment...")
     collect_results(root_dir, experiment_name, results_ids, n_boots=results_config["n_boots"], score_name=results_config["score"])
     print("Done!")
     
 
 
+def collect_results(root_dir, experiment_name, results_ids, n_boots=None, score_name='accuracy'):
 
-def get_results_ids(root_dir, config):
-    random_state = config.pop("random_state")
-    n_seeds = config.pop("n_seeds")
+    # check if results directory exists
+    if len(results_ids) == 0:
+        print("No results found!")
+        return
+    
+    results = []
+    raw_results = results_ids
+    for raw_result in tqdm(raw_results, leave=False):
+        with open(f"{root_dir}/results/raw/{raw_result}/config.json", "r") as f:
+            config = json.load(f)
+        with open(f"{root_dir}/results/raw/{raw_result}/results.pkl", "rb") as f:
+            result = pickle.load(f)
 
-    datasets = config.pop("datasets") # datasets
-    rs = np.random.RandomState(random_state) # seed
+        true_labels = result["true_labels"]
+        rs = np.random.RandomState(config["random_state"])
+        iters = range(n_boots) if n_boots is not None else range(1)
+        bootstrap = n_boots is not None
+        for _ in iters:
+            for key in ["original_probs", "probs_rescaled_train_queries"]:
+                this_result = {k: v for k, v in deepcopy(config).items() if k != "content_free_inputs"}
+                predictions = np.argmax(result[key], axis=1)
+                score = compute_score(true_labels, predictions, bootstrap=bootstrap, score=score_name, random_state=rs)
+                this_result["output_prob_type"] = key
+                this_result[f"score:{score_name}"] = score
+                results.append(this_result)
+            for cf_probs in result["cf_probs"]:
+                this_result = {k: v for k, v in deepcopy(config).items() if k != "content_free_inputs"}
+                predictions = np.argmax(cf_probs["rescaled_probs"], axis=1)
+                score = compute_score(true_labels, predictions, bootstrap=bootstrap, score=score_name, random_state=rs)
+                this_result["output_prob_type"] = f"content_free_{cf_probs['inputs']}"
+                this_result[f"score:{score_name}"] = score
+                results.append(this_result)
+    
+    # save results
+    df_results = pd.DataFrame.from_records(results)
+    df_results.to_csv(f"{root_dir}/results/{experiment_name}_results.csv", index=False)
 
-    results_ids = []
-    for dataset, n_shots_configs in datasets.items():
-        config["dataset"] = dataset
-        seeds = rs.randint(low=0,high=100000,size=(len(n_shots_configs),n_seeds)) # seeds
-        for i, n_shots_config in enumerate(n_shots_configs):
-            config["n_shots"] = n_shots_config["n_shots"]
-            this_seed_results = []
-            for seed in seeds[i]:
-                config["random_state"] = int(seed)
-                result_id = create_hash_from_dict(**config)
-                if os.path.exists(f"{root_dir}/results/raw/{result_id}"):
-                    this_seed_results.append(result_id)
-            
-            if len(this_seed_results) == n_seeds:
-                for result_id in this_seed_results:
-                    results_ids.append(result_id)
-    return results_ids
 
 if __name__ == "__main__":
     main()
