@@ -1,12 +1,12 @@
+.old/results/
+.old/*.pkl
+.old/*.zip
+
 /results*/
-/results.gpt3.zip
+
 /data
 /models
-/cb_gpt2-xl_0shot_None_subsample_seed0.pkl
 /openai_key.txt
-
-expected_cost.zip
-psr-calibration.zip
 
 *.pyc
 /.vscode

@@ -28,7 +28,7 @@ def parse_classification_args():
     args = parser.parse_args()
     root_dir = args.root_dir
     config_filename = args.config + ".json"
-    with open(os.path.join(root_dir,"configs/classification",config_filename)) as config_file:
+    with open(os.path.join(root_dir,"configs/main",config_filename)) as config_file:
         config = json.load(config_file)
     use_saved_results = args.use_saved_results
 
@@ -43,7 +43,7 @@ def parse_collect_results_args():
     root_dir = args.root_dir
     experiment_filename = args.experiment + ".json"
     config_filename = args.config + ".json"
-    with open(os.path.join(root_dir,"configs/classification",experiment_filename)) as experiment_file:
+    with open(os.path.join(root_dir,"configs/main",experiment_filename)) as experiment_file:
         experiment_config = json.load(experiment_file)
 
     with open(os.path.join(root_dir,"configs/collect_results",config_filename)) as results_file:
@@ -61,7 +61,7 @@ def parse_calibration_args():
     root_dir = args.root_dir
     experiment_filename = args.experiment + ".json"
     config_filename = args.config + ".json"
-    with open(os.path.join(root_dir,"configs/classification",experiment_filename)) as experiment_file:
+    with open(os.path.join(root_dir,"configs/main",experiment_filename)) as experiment_file:
         experiment_config = json.load(experiment_file)
 
     with open(os.path.join(root_dir,"configs/calibration",config_filename)) as results_file:
@@ -69,7 +69,47 @@ def parse_calibration_args():
 
     use_saved_results = args.use_saved_results
 
-    return root_dir, experiment_config, args.experiment, results_config, use_saved_results
+    return root_dir, experiment_config, args.experiment, results_config, args.config, use_saved_results
+
+def parse_content_free_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--root_dir', type=str, default="./")
+    parser.add_argument('--experiment', type=str, default='experiment')
+    parser.add_argument('--config', type=str, default='config')
+    parser.add_argument('--use_saved_results', action='store_true', default=False)
+    args = parser.parse_args()
+    root_dir = args.root_dir
+    experiment_filename = args.experiment + ".json"
+    config_filename = args.config + ".json"
+    with open(os.path.join(root_dir,"configs/main",experiment_filename)) as experiment_file:
+        experiment_config = json.load(experiment_file)
+
+    with open(os.path.join(root_dir,"configs/content_free",config_filename)) as results_file:
+        results_config = json.load(results_file)
+
+    use_saved_results = args.use_saved_results
+
+    return root_dir, experiment_config, args.experiment, results_config, args.config, use_saved_results
+
+def parse_train_queries_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--root_dir', type=str, default="./")
+    parser.add_argument('--experiment', type=str, default='experiment')
+    parser.add_argument('--config', type=str, default='config')
+    parser.add_argument('--use_saved_results', action='store_true', default=False)
+    args = parser.parse_args()
+    root_dir = args.root_dir
+    experiment_filename = args.experiment + ".json"
+    config_filename = args.config + ".json"
+    with open(os.path.join(root_dir,"configs/main",experiment_filename)) as experiment_file:
+        experiment_config = json.load(experiment_file)
+
+    with open(os.path.join(root_dir,"configs/train_queries",config_filename)) as results_file:
+        results_config = json.load(results_file)
+
+    use_saved_results = args.use_saved_results
+
+    return root_dir, experiment_config, args.experiment, results_config, args.config, use_saved_results
 
 
 
@@ -160,9 +200,9 @@ def dataset2baseline(dataset_name, score="accuracy"):
 
 def read_results(root_dir, experiment_name):
     score_results = pd.read_csv(os.path.join(root_dir, "results", f"{experiment_name}_results.csv"), index_col=None)
-    calibrated_results = pd.read_csv(os.path.join(root_dir, "results", f"{experiment_name}_calibration_results.csv"), index_col=None)
-    calibrated_results["output_prob_type"] = "calibrated"
-    score_results = pd.concat([score_results, calibrated_results], axis=0)
+    # calibrated_results = pd.read_csv(os.path.join(root_dir, "results", f"{experiment_name}_calibration_results.csv"), index_col=None)
+    # calibrated_results["output_prob_type"] = "calibrated"
+    # score_results = pd.concat([score_results, calibrated_results], axis=0)
     for column in score_results.columns:
         if "score:" in column:
             score_name = column.split(":")[1]
@@ -194,7 +234,7 @@ def plot_score_vs_nshots_std(score_results, score="accuracy", model_name="gpt2-x
     score_results = score_results.sort_values(["model", "dataset", "eval_split", "n_shots", "output_prob_type"])
     if prob_types is not None:
         prob_types = [pt for pt in prob_types if pt in score_results["output_prob_type"].unique()]
-        score_results = score_results.loc[score_results["prob_types"].isin(prob_types), :].sort_index(level=["model", "dataset", "eval_split", "n_shots"])
+        score_results = score_results.loc[score_results["output_prob_type"].isin(prob_types), :].sort_index(level=["model", "dataset", "eval_split", "n_shots"])
     if datasets is not None:
         datasets = [ds for ds in datasets if ds in score_results["dataset"].unique()]
         score_results = score_results.loc[score_results["dataset"].isin(datasets), :].sort_index(level=["model", "dataset", "eval_split", "n_shots"])
@@ -219,7 +259,7 @@ def plot_score_vs_nshots_std(score_results, score="accuracy", model_name="gpt2-x
 
     # add legend
     handles, labels = ax[i].get_legend_handles_labels()
-    fig.legend(handles, labels, loc='lower center', ncol=len(output_prob_type), bbox_to_anchor=(0.5, -0.1))
+    fig.legend(handles, labels, loc='lower center', ncol=max([len(output_prob_type)//2,1]), bbox_to_anchor=(0.5, -0.1))
     fig.tight_layout()
 
 def plot_score_vs_nshots_boxplot(score_results, score="accuracy", model_name="gpt2-xl", prob_types=None, datasets=None):

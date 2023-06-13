@@ -120,8 +120,6 @@
             }
         ]
     },
-    "eval_split": "test",
-
-    "content_free_inputs": [["[MASK]","N/A",""], ["idk"]],
-    "num_train_samples": 100
+    
+    "eval_split": "test"
 }

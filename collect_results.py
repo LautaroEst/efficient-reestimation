@@ -1,63 +1,49 @@
 
-from tqdm import tqdm
-import json
-import pickle
+
 from copy import deepcopy
+import glob
+import json
+import os
+import pickle
 
 import numpy as np
 import pandas as pd
-
-from src.utils import parse_collect_results_args, get_results_ids_from_config, compute_score
-
+from tqdm import tqdm
+from src.utils import compute_score, get_results_ids_from_config, parse_collect_results_args
 
 
 def main():
     root_dir, experiment_config, experiment_name, results_config = parse_collect_results_args()
     results_ids = get_results_ids_from_config(root_dir, experiment_config)
     print(f"Collecting results for {experiment_name} experiment...")
-    collect_results(root_dir, experiment_name, results_ids, n_boots=results_config["n_boots"], score_name=results_config["score"])
-    print("Done!")
-    
+    print(f"Found {len(results_ids)} results directories.")
+    run(root_dir, results_ids, experiment_name, **results_config)
 
 
-def collect_results(root_dir, experiment_name, results_ids, n_boots=None, score_name='accuracy'):
+def run(root_dir, results_ids, experiment_name, score="accuracy"):
 
-    # check if results directory exists
-    if len(results_ids) == 0:
-        print("No results found!")
-        return
-    
-    results = []
-    raw_results = results_ids
-    for raw_result in tqdm(raw_results, leave=False):
-        with open(f"{root_dir}/results/raw/{raw_result}/config.json", "r") as f:
+    score_name = score
+    all_results = []
+    pbar = tqdm(results_ids, leave=False)
+    for result_id in pbar:
+        with open(os.path.join(root_dir,f"results/raw/{result_id}/config.json"), "r") as f:
             config = json.load(f)
-        with open(f"{root_dir}/results/raw/{raw_result}/results.pkl", "rb") as f:
-            result = pickle.load(f)
-
-        true_labels = result["true_labels"]
-        rs = np.random.RandomState(config["random_state"])
-        iters = range(n_boots) if n_boots is not None else range(1)
-        bootstrap = n_boots is not None
-        for _ in iters:
-            for key in ["original_probs", "probs_rescaled_train_queries"]:
-                this_result = {k: v for k, v in deepcopy(config).items() if k != "content_free_inputs"}
-                predictions = np.argmax(result[key], axis=1)
-                score = compute_score(true_labels, predictions, bootstrap=bootstrap, score=score_name, random_state=rs)
-                this_result["output_prob_type"] = key
+        for filename in glob.glob(os.path.join(root_dir, "results/calibrated", result_id, "*.pkl")):
+            with open(filename, "rb") as f:
+                result = pickle.load(f)
+            for k, v in result.items():
+                if k == "test_labels":
+                    continue
+                this_result = deepcopy(config)
+                this_result["boots_id"] = int(filename.split("/")[-1].split(".")[0])
+                score = compute_score(np.argmax(v, axis=1), result["test_labels"], score_name)
+                this_result["output_prob_type"] = k
                 this_result[f"score:{score_name}"] = score
-                results.append(this_result)
-            for cf_probs in result["cf_probs"]:
-                this_result = {k: v for k, v in deepcopy(config).items() if k != "content_free_inputs"}
-                predictions = np.argmax(cf_probs["rescaled_probs"], axis=1)
-                score = compute_score(true_labels, predictions, bootstrap=bootstrap, score=score_name, random_state=rs)
-                this_result["output_prob_type"] = f"content_free_{cf_probs['inputs']}"
-                this_result[f"score:{score_name}"] = score
-                results.append(this_result)
-    
-    # save results
-    df_results = pd.DataFrame.from_records(results)
-    df_results.to_csv(f"{root_dir}/results/{experiment_name}_results.csv", index=False)
+                all_results.append(this_result)
+    df = pd.DataFrame(all_results)
+    df.to_csv(os.path.join(root_dir, "results", f"{experiment_name}_results.csv"), index=False)
+    print("Done!")
+            
 
 
 if __name__ == "__main__":

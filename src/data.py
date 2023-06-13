@@ -380,7 +380,8 @@ class ClassificationDataset:
     
 
     def construct_prompt_with_train_shots(self, sentence, prompt_func=None):
-        prompt = self.construct_prompt(self.prompt_shots_sentences, self.prompt_shots_labels, sentence, prompt_func=prompt_func)
+        prompt_shots_sentences = self.prompt_shots_sentences
+        prompt = self.construct_prompt(prompt_shots_sentences, self.prompt_shots_labels, sentence, prompt_func=prompt_func)
         query_truncated = False
         shots_truncated = False
         original_sentence = sentence
@@ -390,13 +391,12 @@ class ClassificationDataset:
                 sentence = sentence[:-10]
                 if len(sentence) < 40:
                     sentence = original_sentence
-                    prompt_shots_sentences = self.prompt_shots_sentences
                     while sum(self.tokenizer(prompt,return_tensors=None,padding=False,truncation=False)["attention_mask"]) > self.tokenizer.model_max_length - 5:
                         shots_truncated = True
                         prompt_shots_sentences = [s[:-10] for s in prompt_shots_sentences]
                         sentence = sentence[:-10]
                         prompt = self.construct_prompt(prompt_shots_sentences, self.prompt_shots_labels, sentence, prompt_func=prompt_func)        
-                prompt = self.construct_prompt(self.prompt_shots_sentences, self.prompt_shots_labels, sentence, prompt_func=prompt_func)
+                prompt = self.construct_prompt(prompt_shots_sentences, self.prompt_shots_labels, sentence, prompt_func=prompt_func)
         return prompt, query_truncated, shots_truncated
 
     def random_batch_loader_from_split(self,split="test",num_samples=100,batch_size=32, prompt_func=None):
@@ -416,8 +416,8 @@ class ClassificationDataset:
     def random_batch_loader_from_list(self, data, num_samples=None, batch_size=32, prompt_func=None):
         fictional_labels = [0] * len(data)
         for batch in self._batch_iter(data, fictional_labels, num_samples=num_samples, batch_size=batch_size, prompt_func=prompt_func):
-            prompt = batch['prompt']
-            yield prompt
+            batch.pop('label')
+            yield batch
 
 
     def _batch_iter(self, all_sentences, all_labels, num_samples=None, batch_size=32, prompt_func=None):

@@ -1,5 +1,5 @@
 from ..psrcal.calibration import calibrate, AffineCalLogLoss
-from sklearn.model_selection import StratifiedKFold, StratifiedGroupKFold, GroupKFold
+from sklearn.model_selection import KFold, StratifiedKFold, StratifiedGroupKFold, GroupKFold
 import torch
 import numpy as np
 
@@ -46,7 +46,11 @@ def calibration_with_crossval(logpost, targets, use_bias=True, priors=None, calm
             # Use StratifiedKFold in this case for backward compatibility
             skf = StratifiedKFold(n_splits=nfolds, shuffle=True, random_state=seed)
     else:
-        skf = GroupKFold(n_splits=nfolds)
+        if condition_ids is not None:
+            skf = GroupKFold(n_splits=nfolds)
+        else:
+            skf = KFold(n_splits=nfolds, shuffle=True, random_state=seed)
+
 
     for trni, tsti in skf.split(logpost, targets, condition_ids):
 
