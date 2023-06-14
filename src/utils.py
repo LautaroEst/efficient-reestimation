@@ -28,7 +28,7 @@ def parse_classification_args():
     args = parser.parse_args()
     root_dir = args.root_dir
     config_filename = args.config + ".json"
-    with open(os.path.join(root_dir,"configs/main",config_filename)) as config_file:
+    with open(os.path.join(root_dir,"configs/models",config_filename)) as config_file:
         config = json.load(config_file)
     use_saved_results = args.use_saved_results
 

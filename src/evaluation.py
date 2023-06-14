@@ -1,7 +1,7 @@
 import numpy as np
 from tqdm import tqdm
 
-def _get_probs_from_split(model, dataset, eval_split, num_samples, batch_size, prompt_func=None):
+def get_original_unnormalized_probs(model, dataset, eval_split="test", num_samples=None, batch_size=1, prompt_func=None):
     label_dict = dataset.label_dict
     all_probs = []
     all_labels = []
@@ -22,13 +22,6 @@ def _get_probs_from_split(model, dataset, eval_split, num_samples, batch_size, p
     return all_labels, all_probs, all_queries, all_query_truncated, all_shots_truncated
     
 
-def get_original_unnormalized_probs(model, dataset, eval_split="test", num_samples=None, batch_size=1, prompt_func=None):
-    if eval_split not in ["dev", "test"]:
-        raise ValueError("eval_split must be either 'dev' or 'test'")
-    labels, probs, queries, all_query_truncated, all_shots_truncated = _get_probs_from_split(model, dataset, eval_split=eval_split, num_samples=num_samples, batch_size=batch_size, prompt_func=prompt_func)
-    return labels, probs, queries, all_query_truncated, all_shots_truncated
-
-
 def get_content_free_input_probs(model, dataset, content_free_inputs, batch_size=1, prompt_func=None):
     label_dict = dataset.label_dict
     all_probs = []
@@ -45,13 +38,6 @@ def get_content_free_input_probs(model, dataset, content_free_inputs, batch_size
     all_query_truncated = np.hstack(all_query_truncated).astype(int)
     all_shots_truncated = np.hstack(all_shots_truncated).astype(int)
     return all_probs, all_queries, all_query_truncated, all_shots_truncated
-
-
-def get_train_queries_probs(model, dataset, num_train_samples=100, batch_size=32, prompt_func=None):
-    all_labels, all_probs, all_queries, all_query_truncated, all_shots_truncated = _get_probs_from_split(model, dataset, eval_split="train", num_samples=num_train_samples, batch_size=batch_size, prompt_func=prompt_func)
-    # mean_probs = all_probs.mean(axis=0)
-    # mean_probs_norm = mean_probs / mean_probs.sum() # Normalize
-    return all_labels, all_probs, all_queries, all_query_truncated, all_shots_truncated
 
 
 def transform_probs(original_probs, rescale_factor):
