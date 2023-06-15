@@ -9,7 +9,7 @@ import pandas as pd
 from tqdm import tqdm
 from src.expected_cost.psrcal_wrappers import LogLoss, Brier
 from src.utils import parse_calibration_args, get_results_ids_from_config
-from src.calibration import calibrate, reestimate
+from src.calibration import calibrate_from_train_probs, calibrate_probs_from_trained_model, reestimate_probs_from_trained_model, train_calibrator_from_probs, train_reestimator_from_probs
 from sklearn.metrics import accuracy_score
 
 
@@ -115,7 +115,17 @@ def run_calibration_with_bootstrap(
     train_labels = train_results["train_labels"]
 
     rs = np.random.RandomState(random_state)
-    train_idx_dict = {n: rs.choice(len(train_probs), n, replace=False) for n in num_train_samples}
+    train_models_dict = {}
+    for n in num_train_samples:
+        train_idx = rs.choice(len(train_probs), n, replace=False)
+        calmodel = train_calibrator_from_probs(train_probs[train_idx], train_labels[train_idx], calmethod=calmethod, use_bias=use_bias, deploy_priors=deploy_priors)
+        reestmodel = train_reestimator_from_probs(train_probs[train_idx])
+        train_models_dict[n] = (calmodel, reestmodel)
+
+    cf_models_dict = {}
+    for cf_name, cf_result in cf_results.items():
+        reestmodel = train_reestimator_from_probs(cf_result["probs"])
+        cf_models_dict[cf_name] = reestmodel
     
     if bootstrap is not None:
         boots_idx = [rs.choice(len(test_labels), len(test_labels), replace=True) for _ in range(bootstrap)]
@@ -127,12 +137,10 @@ def run_calibration_with_bootstrap(
         test_probs_boots = test_probs[bi].copy() if bi is not None else test_probs.copy()
         test_labels_boots = test_labels[bi].copy() if bi is not None else test_labels.copy()
         result = calibrate_reestimate_all(
-            train_probs, 
-            train_labels, 
             test_probs_boots, 
             test_labels_boots, 
-            cf_results, 
-            train_idx_dict,
+            cf_models_dict, 
+            train_models_dict,
             boots_idx=bi,
             calmethod=calmethod, 
             use_bias=use_bias, 
@@ -145,19 +153,17 @@ def run_calibration_with_bootstrap(
     
 
 def calibrate_reestimate_all(
-    train_probs, 
-    train_labels, 
     test_probs, 
     test_labels, 
-    cf_results, 
-    train_idx_dict, 
+    cf_models_dict, 
+    train_models_dict, 
     boots_idx, 
     calmethod='AffineCalLogLoss', 
     use_bias=True, 
     deploy_priors=None
 ):
     
-    test_probs_cal_peaky = calibrate(
+    test_probs_cal_peaky = calibrate_from_train_probs(
         test_probs, 
         test_labels, 
         test_probs, 
@@ -169,9 +175,9 @@ def calibrate_reestimate_all(
         boots_idx=None
     )
 
-    test_probs_cal_xval = calibrate(
-        train_probs, # Not used. Just for consistency
-        train_labels, # Not used. Just for consistency
+    test_probs_cal_xval = calibrate_from_train_probs(
+        None,
+        None,
         test_probs,
         test_labels,
         calmethod=calmethod,
@@ -183,31 +189,22 @@ def calibrate_reestimate_all(
 
     test_probs_cal_train = {}
     test_probs_reest_train = {}
-    for n, train_idx in train_idx_dict.items():
-        train_probs_subset = train_probs[train_idx]
-        train_labels_subset = train_labels[train_idx]
+    for n, (calmodel, reestmodel) in train_models_dict.items():
 
-        test_probs_cal_train[n] = calibrate(
-            train_probs_subset,
-            train_labels_subset,
+        test_probs_cal_train[n] = calibrate_probs_from_trained_model(
+            calmodel,
             test_probs,
-            test_labels,
-            calmethod=calmethod,
-            use_bias=use_bias,
-            deploy_priors=deploy_priors,
-            cross_val=False,
-            boots_idx=None
         )
 
-        test_probs_reest_train[n] = reestimate(
-            train_probs_subset,
+        test_probs_reest_train[n] = reestimate_probs_from_trained_model(
+            reestmodel,
             test_probs
         )
 
     test_probs_reest_cf = {}
-    for cf_name, cf_result in cf_results.items():
-        test_probs_reest_cf[cf_name] = reestimate(
-            cf_result["probs"],
+    for cf_name, cf_reestmodel in cf_models_dict.items():
+        test_probs_reest_cf[cf_name] = reestimate_probs_from_trained_model(
+            cf_reestmodel,
             test_probs
         )
     
@@ -217,10 +214,10 @@ def calibrate_reestimate_all(
         "test_probs_original": test_probs_original,
         "test_labels": test_labels,
         "test_probs_cal_peaky": test_probs_cal_peaky,
-        **{f"test_probs_cal_train_{n}": test_probs_cal_train[n] for n in train_idx_dict},
-        **{f"test_probs_reest_train_{n}": test_probs_reest_train[n] for n in train_idx_dict},
+        **{f"test_probs_cal_train_{n}": test_probs_cal_train[n] for n in train_models_dict},
+        **{f"test_probs_reest_train_{n}": test_probs_reest_train[n] for n in train_models_dict},
         "test_probs_cal_xval": test_probs_cal_xval,
-        **{f"test_probs_reest_cf_{cf_name}": test_probs_reest_cf[cf_name] for cf_name in cf_results.keys()}
+        **{f"test_probs_reest_cf_{cf_name}": test_probs_reest_cf[cf_name] for cf_name in cf_models_dict}
     }
     
         

@@ -160,13 +160,34 @@ def plot_score_vs_nshots_std(root_dir, experiment_name, calibration_config, metr
     df_results = df_results.groupby(["dataset", "n_shots", "prob_type"]).agg({
         f"score:{metric}": ["mean", "std"] for metric in metrics
     })
-    fig, ax = plt.subplots(len(metrics), len(datasets), figsize=(15, 5))
+    fig, ax = plt.subplots(len(metrics), len(datasets), figsize=(15, 10))
     if len(metrics) == 1 and len(datasets) == 1:
         ax = np.array([[ax]])
     elif len(metrics) == 1:
         ax = ax.reshape(1, -1)
     elif len(datasets) == 1:
         ax = ax.reshape(-1, 1)
+
+    def probtype2kwargs(name):
+        n2style = {10: "dotted", 100: "dashed", 400: "solid"}
+        cf2style = {"idk": "dotted", "mask_na_none": "dashed"}
+        if "probs_original" in name:
+            return dict(label="Original",color="k",linestyle="-")
+        elif "cal_peaky" in name:
+            return dict(label="Calibration on Test", color="C0", linestyle="-")
+        elif "cal_xval" in name:
+            return dict(label="Calibration with Cross-validation", color="C1", linestyle="-")
+        elif "train_" in name:
+            n = int(name.split("_")[-1])
+            if "cal_" in name:
+                return dict(label=f"Calibration on Train ({n} samples)", color="C2", linestyle=n2style[n])
+            elif "reest_" in name:
+                return dict(label=f"Reestimation on Train ({n} samples)", color="C3", linestyle=n2style[n])
+        elif "cf_" in name:
+            cf = name.split("cf_")[-1]
+            return dict(label=f"Reestimation with Content-Free input ({cf})", color="C4", linestyle=cf2style[cf])
+        else:
+            raise ValueError(f"Unknown prob_type: {name}")
     
     for i, metric in enumerate(metrics):
         for j, dataset in enumerate(datasets):
@@ -175,14 +196,16 @@ def plot_score_vs_nshots_std(root_dir, experiment_name, calibration_config, metr
                 mean = df_results.loc[(dataset, slice(None), prob_type), (f"score:{metric}", "mean")]
                 std = df_results.loc[(dataset, slice(None), prob_type), (f"score:{metric}", "std")]
                 n_shots = mean.index.get_level_values("n_shots")
-                ax[i,j].plot(n_shots, mean, label=prob_type)
-                ax[i,j].fill_between(n_shots, mean - std, mean + std, alpha=0.2)
+                kwargs = probtype2kwargs(prob_type)
+                ax[i,j].plot(n_shots, mean, **kwargs)
+                ax[i,j].fill_between(n_shots, mean - std, mean + std, alpha=0.1, color=kwargs["color"])
             ax[i,j].set_title(dataset2description(dataset))
             if metric == "accuracy":
                 ax[i,j].hlines(dataset2baseline(dataset), n_shots[0]-1, n_shots[-1]+1, linestyles="dashed", colors="gray", label="Baseline")
             ax[i,j].set_xlabel("n-shots")
             ax[i,j].set_xticks(n_shots)
             ax[i,j].set_ylabel(metric)
+            ax[i, j].set_xlim([n_shots[0], n_shots[-1]])
             ax[i,j].grid()
 
     # add legend
@@ -210,7 +233,7 @@ def plot_score_vs_nshots_boxplot(root_dir, experiment_name, calibration_config, 
     ].sort_index(level=["dataset", "n_shots", "prob_type"])
     n_shots = sorted(df_results["n_shots"].unique())
 
-    fig, ax = plt.subplots(len(metrics), len(datasets), figsize=(15, 5))
+    fig, ax = plt.subplots(len(metrics), len(datasets), figsize=(15, 10))
     if len(metrics) == 1 and len(datasets) == 1:
         ax = np.array([[ax]])
     elif len(metrics) == 1:
@@ -239,7 +262,7 @@ def plot_score_vs_nshots_boxplot(root_dir, experiment_name, calibration_config, 
             ax[i,j].get_legend().remove()
 
     # add legend
-    handles, labels = ax[i].get_legend_handles_labels()
+    handles, labels = ax[i,j].get_legend_handles_labels()
     fig.legend(handles, labels, loc='lower center', ncol=max([len(prob_types)//2,1]), bbox_to_anchor=(0.5, -0.1))
     fig.tight_layout()
 
