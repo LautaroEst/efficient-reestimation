@@ -3,10 +3,10 @@ import json
 import os
 import pickle
 import numpy as np
-from src.utils import parse_classification_args, create_hash_from_dict, save_results
+from src.utils import parse_classification_args, create_hash_from_dict
 from src.data import ClassificationDataset
 from src.models import create_model
-from src.evaluation import get_content_free_input_probs, get_original_unnormalized_probs
+from src.inference import get_content_free_input_probs, get_original_unnormalized_probs
 from tqdm import tqdm
 
 
@@ -34,6 +34,9 @@ def main():
         for i, n_shots_config in enumerate(pbar_nshots):
             config["n_shots"] = n_shots_config["n_shots"]
             pbar_nshots.set_description(f"{n_shots_config['n_shots']}-shot")
+
+            # Instantiate model
+            model = create_model(root_dir, model=model_name, max_memory=n_shots_config["max_memory"])
        
             # For each seed
             pbar_seeds = tqdm(seeds[i], leave=False, total=n_seeds)
@@ -41,9 +44,6 @@ def main():
                 config["random_state"] = int(seed)
                 pbar_seeds.set_description(f"Seed {seed}")
                 result_id = create_hash_from_dict(**config)
-
-                # Instantiate model
-                model = create_model(root_dir, model=model_name, max_memory=n_shots_config["max_memory"])
 
                 # Instantiate dataset
                 dataset_obj = ClassificationDataset(
@@ -62,8 +62,15 @@ def main():
                     content_free_inputs=content_free_inputs
                 )
 
-                save_results(root_dir, test_results, config, result_id, subdir="train_test", results_name="test")
-                save_results(root_dir, train_results, config, result_id, subdir="train_test", results_name="train")
+                # Save results
+                if not os.path.exists(os.path.join(root_dir,f"results/train_test/{result_id}")):
+                    os.makedirs(os.path.join(root_dir,f"results/train_test/{result_id}"))
+                with open(os.path.join(root_dir,f"results/train_test/{result_id}/train.pkl"), "wb") as f:
+                    pickle.dump(train_results, f)
+                with open(os.path.join(root_dir,f"results/train_test/{result_id}/test.pkl"), "wb") as f:
+                    pickle.dump(test_results, f)
+                with open(os.path.join(root_dir,f"results/train_test/{result_id}/config.json"), "w") as f:
+                    json.dump(config, f, indent=4, sort_keys=True)
                 for cf_name, cf_res in cf_results.items():
                     with open(os.path.join(root_dir,f"results/train_test/{result_id}/{cf_name}.pkl"), "wb") as f:
                         pickle.dump(cf_res, f)
@@ -72,7 +79,7 @@ def main():
                 with open(os.path.join(root_dir,f"results/train_test/{result_id}/n_shots_config.json"), "w") as f:
                     json.dump(n_shots_config, f)
 
-                del model
+            del model
 
     print("All runs finished!")
 
@@ -134,15 +141,18 @@ def run(
             with open(os.path.join(results_dir,f"{cf_name}.pkl"), "rb") as f:
                 cf_results[cf_name] = pickle.load(f)
         else:
-            content_free_input_probs = get_content_free_input_probs(
+            cf_probs, cf_queries, cf_queries_truncated, cf_shots_truncated = get_content_free_input_probs(
                 model, 
                 dataset, 
                 cf_in,
                 batch_size=batch_size
-            )
+            ) # Returns a tuple
             cf_results[cf_name] = {
                 "inputs": cf_in,
-                "probs": content_free_input_probs,
+                "probs": cf_probs,
+                "queries": cf_queries,
+                "queries_truncated": cf_queries_truncated,
+                "shots_truncated": cf_shots_truncated
             }
 
     prompt_shots = {

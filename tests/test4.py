@@ -1,5 +1,5 @@
 from src.models import create_model
-from src.evaluation import get_original_unnormalized_probs
+from src.inference import get_original_unnormalized_probs
 from src.data import ClassificationDataset
 from tqdm import tqdm
 import json

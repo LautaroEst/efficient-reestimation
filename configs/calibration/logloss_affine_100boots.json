@@ -1,5 +1,6 @@
 {
-    "metric": "LogLoss",
+    "num_train_samples": [10, 100, 400],
+    "metrics": ["cross-entropy", "accuracy"],
     "calmethod": "AffineCalLogLoss",
     "use_bias": true, 
     "deploy_priors": null, 

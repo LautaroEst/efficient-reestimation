@@ -1,6 +1,6 @@
 import numpy as np
 from src.models import create_model
-from src.evaluation import get_content_free_input_probs
+from src.inference import get_content_free_input_probs
 from src.data import ClassificationDataset
 
 
