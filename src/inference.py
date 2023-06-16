@@ -22,7 +22,7 @@ def get_original_unnormalized_probs(model, dataset, eval_split="test", num_sampl
     return all_labels, all_probs, all_queries, all_query_truncated, all_shots_truncated
     
 
-def get_content_free_input_probs(model, dataset, content_free_inputs, batch_size=1, prompt_func=None):
+def get_content_free_input_unnormalized_probs(model, dataset, content_free_inputs, batch_size=1, prompt_func=None):
     label_dict = dataset.label_dict
     all_probs = []
     all_queries = []

@@ -169,7 +169,7 @@ def plot_score_vs_nshots_std(root_dir, experiment_name, calibration_config, metr
         ax = ax.reshape(-1, 1)
 
     def probtype2kwargs(name):
-        n2style = {10: "dotted", 100: "dashed", 400: "solid"}
+        n2style = {40: "dotted", 100: "dashed", 400: "solid"}
         cf2style = {"idk": "dotted", "mask_na_none": "dashed"}
         if "probs_original" in name:
             return dict(label="Original",color="k",linestyle="-")

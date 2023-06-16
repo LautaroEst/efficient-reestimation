@@ -6,18 +6,22 @@ import numpy as np
 
 class AffineCal(LBFGS_Objective):
 
-    def __init__(self, scores, labels, bias=True, priors=None):    
+    def __init__(self, scores, labels, bias=True, scale=True, priors=None):    
         # If priors are provided, ignore the data priors and use those ones instead
         # In this case, the scores are taken to be log scaled likelihoods
 
         super().__init__()
 
-        self.temp = Parameter(torch.tensor(1.0, dtype=torch.float64))
-
         if priors is not None:
             self.priors = torch.Tensor(priors)
         else:
             self.priors = None
+
+        self.has_scale = scale
+        if scale:
+            self.temp = Parameter(torch.tensor(1.0, dtype=torch.float64))
+        else:
+            self.temp = 1.0
 
         self.has_bias = bias
         if bias:
@@ -100,8 +104,6 @@ class HistogramBinningCal():
         # Generate intervals
         limits = np.linspace(0, 1, num=self.M+1)
         self.lows, self.highs = limits[:-1], limits[1:]
-        prop2s = []
-        post2s = []
         self.cal_transform = []
         self.ave_score_per_bin = []
 

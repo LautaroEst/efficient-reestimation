@@ -31,8 +31,8 @@ def main():
         with open(f"{root_dir}/results/train_test/{result_id}/config.json", "r") as f:
             main_config = json.load(f)
 
-        if os.path.exists(os.path.join(root_dir, f"results/calibrated/{result_id}.pkl")) and use_saved_results:
-            with open(os.path.join(root_dir, f"results/calibrated/{result_id}.pkl"), "rb") as f:
+        if os.path.exists(os.path.join(root_dir, f"results/calibrated/{calibration_config_name}/{result_id}.pkl")) and use_saved_results:
+            with open(os.path.join(root_dir, f"results/calibrated/{calibration_config_name}/{result_id}.pkl"), "rb") as f:
                 results = pickle.load(f)
         else:        
             with open(f"{root_dir}/results/train_test/{result_id}/train.pkl", "rb") as f:
@@ -50,9 +50,9 @@ def main():
             results = run_calibration_with_bootstrap(train_results, test_results, cf_results, random_state=main_config["random_state"], **calibration_config)
 
             # Save Results
-            if not os.path.exists(os.path.join(root_dir, "results/calibrated")):
-                os.makedirs(os.path.join(root_dir, "results/calibrated"))
-            with open(os.path.join(root_dir, f"results/calibrated/{result_id}.pkl"), "wb") as f:
+            if not os.path.exists(os.path.join(root_dir, f"results/calibrated/{calibration_config_name}")):
+                os.makedirs(os.path.join(root_dir, f"results/calibrated/{calibration_config_name}"))
+            with open(os.path.join(root_dir, f"results/calibrated/{calibration_config_name}/{result_id}.pkl"), "wb") as f:
                 pickle.dump(results, f)
 
         scores = compute_metrics(results, main_config, evaluation_metrics)
@@ -100,8 +100,7 @@ def run_calibration_with_bootstrap(
     cf_results,
     num_train_samples,
     calmethod = 'AffineCalLogLoss',
-    use_bias = True,
-    deploy_priors = None,
+    calparams={},
     bootstrap = 100,
     random_state = None
 ):
@@ -118,13 +117,15 @@ def run_calibration_with_bootstrap(
     train_models_dict = {}
     for n in num_train_samples:
         train_idx = rs.choice(len(train_probs), n, replace=False)
-        calmodel = train_calibrator_from_probs(train_probs[train_idx], train_labels[train_idx], calmethod=calmethod, use_bias=use_bias, deploy_priors=deploy_priors)
+        calmodel = train_calibrator_from_probs(train_probs[train_idx], train_labels[train_idx], calmethod=calmethod, calparams=calparams)
         reestmodel = train_reestimator_from_probs(train_probs[train_idx])
         train_models_dict[n] = (calmodel, reestmodel)
 
     cf_models_dict = {}
     for cf_name, cf_result in cf_results.items():
-        reestmodel = train_reestimator_from_probs(cf_result["probs"])
+        cf_probs = cf_result["probs"].copy()
+        cf_probs = cf_probs / cf_probs.sum(axis=1, keepdims=True)
+        reestmodel = train_reestimator_from_probs(cf_probs)
         cf_models_dict[cf_name] = reestmodel
     
     if bootstrap is not None:
@@ -143,8 +144,7 @@ def run_calibration_with_bootstrap(
             train_models_dict,
             boots_idx=bi,
             calmethod=calmethod, 
-            use_bias=use_bias, 
-            deploy_priors=deploy_priors
+            calparams=calparams
         )
         result["boot_idx"] = bi
         boots_results.append(result)
@@ -159,8 +159,7 @@ def calibrate_reestimate_all(
     train_models_dict, 
     boots_idx, 
     calmethod='AffineCalLogLoss', 
-    use_bias=True, 
-    deploy_priors=None
+    calparams={}
 ):
     
     test_probs_cal_peaky = calibrate_from_train_probs(
@@ -169,8 +168,7 @@ def calibrate_reestimate_all(
         test_probs, 
         test_labels, 
         calmethod=calmethod, 
-        use_bias=use_bias, 
-        deploy_priors=deploy_priors, 
+        calparams=calparams, 
         cross_val=False,
         boots_idx=None
     )
@@ -181,8 +179,7 @@ def calibrate_reestimate_all(
         test_probs,
         test_labels,
         calmethod=calmethod,
-        use_bias=use_bias,
-        deploy_priors=deploy_priors,
+        calparams=calparams,
         cross_val=True,
         boots_idx=boots_idx
     )
@@ -190,23 +187,12 @@ def calibrate_reestimate_all(
     test_probs_cal_train = {}
     test_probs_reest_train = {}
     for n, (calmodel, reestmodel) in train_models_dict.items():
-
-        test_probs_cal_train[n] = calibrate_probs_from_trained_model(
-            calmodel,
-            test_probs,
-        )
-
-        test_probs_reest_train[n] = reestimate_probs_from_trained_model(
-            reestmodel,
-            test_probs
-        )
+        test_probs_cal_train[n] = calibrate_probs_from_trained_model(test_probs,calmodel)
+        test_probs_reest_train[n] = reestimate_probs_from_trained_model(test_probs,reestmodel)
 
     test_probs_reest_cf = {}
     for cf_name, cf_reestmodel in cf_models_dict.items():
-        test_probs_reest_cf[cf_name] = reestimate_probs_from_trained_model(
-            cf_reestmodel,
-            test_probs
-        )
+        test_probs_reest_cf[cf_name] = reestimate_probs_from_trained_model(test_probs,cf_reestmodel)
     
     test_probs_original = test_probs.copy()
 

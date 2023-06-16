@@ -1,13 +1,14 @@
 from ..psrcal.calibration import AffineCalLogLoss
-from sklearn.model_selection import KFold, StratifiedKFold, StratifiedGroupKFold, GroupKFold
+from sklearn.model_selection import StratifiedKFold, StratifiedGroupKFold, GroupKFold, KFold
 import torch
 import numpy as np
+from scipy.special import logsumexp 
 
 
-def train_calibrator(logpost_trn, targets_trn, use_bias=True, priors=None, calmethod=AffineCalLogLoss):
+def train_calibrator(logpost_trn, targets_trn, calparams={}, calmethod=AffineCalLogLoss):
     trnf = torch.as_tensor(logpost_trn, dtype=torch.float32)
     trnt = torch.as_tensor(targets_trn, dtype=torch.int64)
-    calmodel = calmethod(trnf, trnt, bias=use_bias, priors=priors)
+    calmodel = calmethod(trnf, trnt, **calparams)
     calmodel.train()
     return calmodel
 
@@ -15,10 +16,14 @@ def calibrate_scores(logpost_tst, calmodel):
     tstf = torch.as_tensor(logpost_tst, dtype=torch.float32)
     tstf_cal = calmodel.calibrate(tstf)
     logpostcal = tstf_cal.detach().numpy()
+
+    # Normalize them to make them log posteriors
+    logpostcal -= logsumexp(logpostcal, axis=1, keepdims=True)
+
     return logpostcal
 
 
-def calibration_with_crossval(logpost, targets, use_bias=True, priors=None, calmethod=AffineCalLogLoss, seed=None, 
+def calibration_with_crossval(logpost, targets, calparams={}, calmethod=AffineCalLogLoss, seed=None, 
                               condition_ids=None, stratified=True, nfolds=5):
     
     """ 
@@ -67,21 +72,26 @@ def calibration_with_crossval(logpost, targets, use_bias=True, priors=None, calm
             skf = KFold(n_splits=nfolds, shuffle=True, random_state=seed)
 
     for trni, tsti in skf.split(logpost, targets, condition_ids):
-        calmodel = train_calibrator(logpost[trni], targets[trni], use_bias=use_bias, priors=priors, calmethod=calmethod)
+
+        calmodel = train_calibrator(logpost[trni], targets[trni], calparams=calparams, calmethod=calmethod)
         logpostcal[tsti] = calibrate_scores(logpost[tsti], calmodel)
 
     return logpostcal
-    
 
-def calibration_train_on_heldout(logpost_tst, logpost_trn, targets_trn, use_bias=True, priors=None, calmethod=AffineCalLogLoss, return_model=True):
-    calmodel = train_calibrator(logpost_trn, targets_trn, use_bias=use_bias, priors=priors, calmethod=calmethod)
+
+def calibration_train_on_heldout(logpost_tst, logpost_trn, targets_trn, calmethod=AffineCalLogLoss, calparams={}, return_model=False):
+    """ Same as calibration_with_crossval but doing cheating calibration.
+    """
+    calmodel = train_calibrator(logpost_trn, targets_trn, calparams=calparams, calmethod=calmethod)
     logpostcal = calibrate_scores(logpost_tst, calmodel)
+
     if return_model:
         return logpostcal, calmodel
     else:
         return logpostcal
 
+def calibration_train_on_test(logpost, targets, calmethod=AffineCalLogLoss, calparams={} ,return_model=False):
 
-def calibration_train_on_test(logpost, targets, use_bias=True, priors=None, calmethod=AffineCalLogLoss, return_model=False):
-    return calibration_train_on_heldout(logpost, logpost, targets, use_bias, priors, calmethod, return_model)
+    return calibration_train_on_heldout(logpost, logpost, targets, calmethod=calmethod, return_model=return_model, 
+                                        calparams=calparams)
 

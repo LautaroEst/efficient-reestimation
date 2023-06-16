@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 
-from psrcal.utils import onehot_encode, check_label
+from .utils import onehot_encode, check_label
 
 
 def logcost(q, label):

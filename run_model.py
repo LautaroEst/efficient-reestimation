@@ -6,7 +6,7 @@ import numpy as np
 from src.utils import parse_classification_args, create_hash_from_dict
 from src.data import ClassificationDataset
 from src.models import create_model
-from src.inference import get_content_free_input_probs, get_original_unnormalized_probs
+from src.inference import get_content_free_input_unnormalized_probs, get_original_unnormalized_probs
 from tqdm import tqdm
 
 
@@ -141,7 +141,7 @@ def run(
             with open(os.path.join(results_dir,f"{cf_name}.pkl"), "rb") as f:
                 cf_results[cf_name] = pickle.load(f)
         else:
-            cf_probs, cf_queries, cf_queries_truncated, cf_shots_truncated = get_content_free_input_probs(
+            cf_probs, cf_queries, cf_queries_truncated, cf_shots_truncated = get_content_free_input_unnormalized_probs(
                 model, 
                 dataset, 
                 cf_in,
