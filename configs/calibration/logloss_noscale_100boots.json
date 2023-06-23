@@ -1,5 +1,5 @@
 {
-    "num_train_samples": [40, 100, 400],
+    "num_train_samples": [400],
     "metrics": ["cross-entropy", "accuracy"],
     "calmethod": "AffineCalLogLoss",
     "calparams": {"bias": true, "scale": false},

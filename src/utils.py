@@ -33,6 +33,20 @@ def parse_classification_args():
 
     return root_dir, config, use_saved_results
 
+def parse_finetuning_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--root_dir', type=str, default="./")
+    parser.add_argument('--config', type=str, default='config')
+    parser.add_argument('--use_saved_results', action='store_true', default=False)
+    args = parser.parse_args()
+    root_dir = args.root_dir
+    config_filename = args.config + ".json"
+    with open(os.path.join(root_dir,"configs/finetuning",config_filename)) as config_file:
+        config = json.load(config_file)
+    use_saved_results = args.use_saved_results
+
+    return root_dir, config, args.config, use_saved_results
+
 def parse_calibration_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--root_dir', type=str, default="./")
@@ -114,10 +128,10 @@ def show_table_mean_std(root_dir, experiment_name, calibration_config, prob_type
     })
     if prob_types is not None:
         prob_types = [pt for pt in prob_types if pt in df_results.index.get_level_values("prob_type").unique()]
-        df_results = df_results.loc[(slice(None), slice(None), slice(None), slice(None), prob_types), :].sort_index(level=["model", "dataset", "eval_split", "n_shots"])
+        df_results = df_results.loc[(slice(None), slice(None), prob_types), :].sort_index(level=["dataset", "n_shots"])
     if dataset is not None:
         dataset = [ds for ds in dataset if ds in df_results.index.get_level_values("dataset").unique()]
-        df_results = df_results.loc[(slice(None), dataset, slice(None), slice(None), slice(None)), :].sort_index(level=["model", "dataset", "eval_split", "n_shots"])
+        df_results = df_results.loc[(dataset, slice(None), slice(None)), :].sort_index(level=["dataset", "n_shots"])
 
     return HTML(f"<h1>Model: {model_name}</h1>\n" + df_results.to_html())
 
@@ -125,7 +139,14 @@ def show_table_mean_std(root_dir, experiment_name, calibration_config, prob_type
 
 def dataset2description(dataset_name):
     dataset = ClassificationDataset("./",None,dataset=dataset_name,n_shot=0,random_state=None)
-    description = dataset.dataset2short[dataset_name] + ": " + dataset.description + f"\nTotal test samples: {sum(dataset.test_samples.values())}" + "\nClasses: " + ", ".join(dataset.test_samples.keys())
+    classes_str = "".join([f'{k}, ' if i % 3 != 2 else f"{k},\n" for i, k in enumerate(dataset.test_samples.keys())])
+    if classes_str.endswith(",\n"):
+        classes_str = classes_str[:-2]
+    if classes_str.endswith(", "):
+        classes_str = classes_str[:-2]
+    description = f"{dataset.dataset2short[dataset_name]}: {dataset.description}" + \
+    f"\nTotal test samples: {sum(dataset.test_samples.values())}" + \
+    f"\nClasses: {classes_str}"
     return description
 
 def dataset2baseline(dataset_name, score="accuracy"):
@@ -138,8 +159,19 @@ def dataset2baseline(dataset_name, score="accuracy"):
     score = compute_score(test_labels, predictions, score=score)
     return score
 
-def plot_score_vs_nshots_std(root_dir, experiment_name, calibration_config, metrics=None, prob_types=None, datasets=None):
-    df_results, all_metrics, model_name = read_results(root_dir, experiment_name, calibration_config)
+def _prepare_results(root_dir, experiment_name, calibration_configs, metrics=None, prob_types=None, datasets=None):
+    all_results = []
+    all_metrics = []
+    all_model_names = []
+    for calibration_config in calibration_configs:
+        df_results, metrics, model_name = read_results(root_dir, experiment_name, calibration_config)
+        df_results["calibration_config"] = calibration_config
+        all_results.append(df_results)
+        all_metrics.extend(metrics)
+        all_model_names.append(model_name)
+    assert len(set(all_model_names)) == 1, "Only one model supported"
+    assert len(set(all_metrics)) == len(metrics), "Metrics in config and results do not match"
+    df_results = pd.concat(all_results, axis=0)
 
     if metrics is None:
         metrics = all_metrics
@@ -155,11 +187,26 @@ def plot_score_vs_nshots_std(root_dir, experiment_name, calibration_config, metr
 
     df_results = df_results.loc[
         df_results["dataset"].isin(datasets) & df_results["prob_type"].isin(prob_types), :
-    ].sort_index(level=["dataset", "n_shots", "prob_type"])
+    ].sort_index(level=["dataset", "n_shots", "prob_type", "calibration_config"])
     
-    df_results = df_results.groupby(["dataset", "n_shots", "prob_type"]).agg({
+    # df_results = df_results.groupby(["dataset", "n_shots", "prob_type", "calibration_config"]).agg({
+    #     f"score:{metric}": ["mean", "std"] for metric in metrics
+    # })
+    # df_results = df_results.reset_index()
+    df_results["result"] = df_results["prob_type"] + "_" + df_results["calibration_config"]
+    df_results = df_results.sort_index(axis=1)
+    df_results = df_results.drop(columns=["prob_type", "calibration_config"])
+    # df_results = df_results.set_index(["dataset", "n_shots", "result"]).sort_index(level=["dataset", "n_shots", "result"])
+
+    return df_results, all_metrics, model_name
+
+
+def plot_score_vs_nshots_std(root_dir, experiment_name, calibration_configs, metrics=None, prob_types=None, datasets=None, results=None, result2kwargs=None):
+    df_results, all_metrics, model_name = _prepare_results(root_dir, experiment_name, calibration_configs, metrics=metrics, prob_types=prob_types, datasets=datasets)
+    df_results = df_results.groupby(["dataset", "n_shots", "result"]).agg({
         f"score:{metric}": ["mean", "std"] for metric in metrics
-    })
+    }).sort_index(level=["dataset", "n_shots", "result"])
+
     fig, ax = plt.subplots(len(metrics), len(datasets), figsize=(15, 10))
     if len(metrics) == 1 and len(datasets) == 1:
         ax = np.array([[ax]])
@@ -168,38 +215,20 @@ def plot_score_vs_nshots_std(root_dir, experiment_name, calibration_config, metr
     elif len(datasets) == 1:
         ax = ax.reshape(-1, 1)
 
-    def probtype2kwargs(name):
-        n2style = {40: "dotted", 100: "dashed", 400: "solid"}
-        cf2style = {"idk": "dotted", "mask_na_none": "dashed"}
-        if "probs_original" in name:
-            return dict(label="Original",color="k",linestyle="-")
-        elif "cal_peaky" in name:
-            return dict(label="Calibration on Test", color="C0", linestyle="-")
-        elif "cal_xval" in name:
-            return dict(label="Calibration with Cross-validation", color="C1", linestyle="-")
-        elif "train_" in name:
-            n = int(name.split("_")[-1])
-            if "cal_" in name:
-                return dict(label=f"Calibration on Train ({n} samples)", color="C2", linestyle=n2style[n])
-            elif "reest_" in name:
-                return dict(label=f"Reestimation on Train ({n} samples)", color="C3", linestyle=n2style[n])
-        elif "cf_" in name:
-            cf = name.split("cf_")[-1]
-            return dict(label=f"Reestimation with Content-Free input ({cf})", color="C4", linestyle=cf2style[cf])
-        else:
-            raise ValueError(f"Unknown prob_type: {name}")
-    
     for i, metric in enumerate(metrics):
         for j, dataset in enumerate(datasets):
             # Plot acc vs nshots for each output_prob_type
-            for prob_type in prob_types:
-                mean = df_results.loc[(dataset, slice(None), prob_type), (f"score:{metric}", "mean")]
-                std = df_results.loc[(dataset, slice(None), prob_type), (f"score:{metric}", "std")]
+            for result in df_results.loc[(dataset, slice(None)), :].index.get_level_values("result").unique():
+                if result not in results:
+                    continue
+                mean = df_results.loc[(dataset, slice(None), result), (f"score:{metric}", "mean")]
+                std = df_results.loc[(dataset, slice(None), result), (f"score:{metric}", "std")]
                 n_shots = mean.index.get_level_values("n_shots")
-                kwargs = probtype2kwargs(prob_type)
+                kwargs = result2kwargs(result)
                 ax[i,j].plot(n_shots, mean, **kwargs)
-                ax[i,j].fill_between(n_shots, mean - std, mean + std, alpha=0.1, color=kwargs["color"])
-            ax[i,j].set_title(dataset2description(dataset))
+                # ax[i,j].fill_between(n_shots, mean - std, mean + std, alpha=0.1, color=kwargs["color"])
+            if i == 0:
+                ax[i,j].set_title(dataset2description(dataset),ha='left', x=0.0)
             if metric == "accuracy":
                 ax[i,j].hlines(dataset2baseline(dataset), n_shots[0]-1, n_shots[-1]+1, linestyles="dashed", colors="gray", label="Baseline")
             ax[i,j].set_xlabel("n-shots")
@@ -210,30 +239,16 @@ def plot_score_vs_nshots_std(root_dir, experiment_name, calibration_config, metr
 
     # add legend
     handles, labels = ax[i,j].get_legend_handles_labels()
-    fig.legend(handles, labels, loc='lower center', ncol=max([len(prob_types)//2,1]), bbox_to_anchor=(0.5, -0.1))
+    fig.legend(handles, labels, loc='lower center', ncol=max([len(results)//3,1]), bbox_to_anchor=(0.5, -0.1))
     fig.tight_layout()
 
-def plot_score_vs_nshots_boxplot(root_dir, experiment_name, calibration_config, metrics=None, prob_types=None, datasets=None):
-    df_results, all_metrics, model_name = read_results(root_dir, experiment_name, calibration_config)
 
-    if metrics is None:
-        metrics = all_metrics
-    assert set(metrics).issubset(set(all_metrics)), "Metrics not in results"
-    
-    if prob_types is None:
-        prob_types = df_results["prob_type"].unique()
-    assert set(prob_types).issubset(set(df_results["prob_type"].unique())), "Prob types not in results"
-
-    if datasets is None:
-        datasets = df_results["dataset"].unique()
-    assert set(datasets).issubset(set(df_results["dataset"].unique())), "Datasets not in results"
-
-    df_results = df_results.loc[
-        df_results["dataset"].isin(datasets) & df_results["prob_type"].isin(prob_types), :
-    ].sort_index(level=["dataset", "n_shots", "prob_type"])
+def plot_score_vs_nshots_boxplot(root_dir, experiment_name, calibration_configs, metrics=None, prob_types=None, datasets=None, results=None, result2kwargs=None):
+    df_results, all_metrics, model_name = _prepare_results(root_dir, experiment_name, calibration_configs, metrics=metrics, prob_types=prob_types, datasets=datasets)
+    # df_results = df_results.reset_index()
     n_shots = sorted(df_results["n_shots"].unique())
 
-    fig, ax = plt.subplots(len(metrics), len(datasets), figsize=(15, 10))
+    fig, ax = plt.subplots(len(metrics), len(datasets), figsize=(20, 10))
     if len(metrics) == 1 and len(datasets) == 1:
         ax = np.array([[ax]])
     elif len(metrics) == 1:
@@ -243,12 +258,12 @@ def plot_score_vs_nshots_boxplot(root_dir, experiment_name, calibration_config, 
     
     for i, metric in enumerate(metrics):
         for j, dataset in enumerate(datasets):
-            data = df_results.loc[df_results.dataset == dataset, ["n_shots", "prob_type", f"score:{metric}"]]
+            data = df_results.loc[(df_results.dataset == dataset) & df_results.result.isin(results), ["n_shots", "result", f"score:{metric}"]]
             ax[i,j] = sns.boxplot(
                 data=data, 
                 x="n_shots", 
                 y=f"score:{metric}", 
-                hue="prob_type", 
+                hue="result", 
                 ax=ax[i,j],
                 order=np.arange(0,max(n_shots)+1)
             )
@@ -263,12 +278,12 @@ def plot_score_vs_nshots_boxplot(root_dir, experiment_name, calibration_config, 
 
     # add legend
     handles, labels = ax[i,j].get_legend_handles_labels()
-    fig.legend(handles, labels, loc='lower center', ncol=max([len(prob_types)//2,1]), bbox_to_anchor=(0.5, -0.1))
+    fig.legend(handles, labels, loc='lower center', ncol=max([len(results)//3,1]), bbox_to_anchor=(0.5, -0.1))
     fig.tight_layout()
 
-def plot_score_vs_nshots(root_dir, experiment_name, calibration_config, plot="line", metrics=None, prob_types=None, datasets=None):
+def plot_score_vs_nshots(root_dir, experiment_name, calibration_configs, plot="line", metrics=None, prob_types=None, datasets=None, results=None, result2kwargs=None):
     if plot == "line":
-        plot_score_vs_nshots_std(root_dir, experiment_name, calibration_config, metrics=metrics, prob_types=prob_types, datasets=datasets)
+        plot_score_vs_nshots_std(root_dir, experiment_name, calibration_configs, metrics=metrics, prob_types=prob_types, datasets=datasets, results=results, result2kwargs=result2kwargs)
     elif plot == "boxplot":
-        plot_score_vs_nshots_boxplot(root_dir, experiment_name, calibration_config, metrics=metrics, prob_types=prob_types, datasets=datasets)
+        plot_score_vs_nshots_boxplot(root_dir, experiment_name, calibration_configs, metrics=metrics, prob_types=prob_types, datasets=datasets, results=results, result2kwargs=result2kwargs)
     

@@ -14,18 +14,62 @@ calmethod_name2fn = {
 class Reestimator:
 
     def __init__(self):
-        self.W = None
+        self.W_inv = None
         self.b = None
 
     def train(self, probs_train):
         num_classes = probs_train.shape[1]
         mean_probs = probs_train.mean(axis=0)
 
-        self.W = np.identity(num_classes) * mean_probs
-        self.b = np.zeros([num_classes, 1])
+        self.W_inv = np.diag(1 / mean_probs)
+        self.b = np.zeros(num_classes)
     
     def reestimate(self, probs_test):
-        transformed_probs = np.matmul(np.linalg.inv(self.W), probs_test.T).T + self.b.T
+        transformed_probs = np.matmul(probs_test,self.W_inv.T) + self.b
+        transformed_probs /= transformed_probs.sum(axis=1, keepdims=True)
+        return transformed_probs
+    
+
+class ReestimatorIterative:
+
+    def __init__(self, num_iter=10):
+        self.num_iter = num_iter
+
+    def train(self, probs_train, labels_train=None):
+        num_classes = probs_train.shape[1]
+        if labels_train is None:
+            priors = np.ones(num_classes)
+        else:
+            priors = np.bincount(labels_train,minlength=num_classes) / len(labels_train)
+        probs_train = probs_train.copy()
+        c = np.ones((probs_train.shape[0],1))
+        for _ in range(self.num_iter):
+            exp_beta = priors / (probs_train / c).mean(axis=0)
+            c = (probs_train * exp_beta).sum(axis=1, keepdims=True)
+        self.exp_beta = exp_beta
+
+    def reestimate(self, probs_test):
+        probs_test = probs_test * self.exp_beta
+        probs_test /= probs_test.sum(axis=1, keepdims=True)
+        return probs_test
+    
+
+class ReestimatorWithPrior:
+
+    def __init__(self):
+        self.W = None
+        self.b = None
+
+    def train(self, probs_train, labels_train):
+        num_classes = probs_train.shape[1]
+        mean_probs = probs_train.mean(axis=0)
+        priors = np.bincount(labels_train,minlength=num_classes) / len(labels_train)
+
+        self.W_inv = np.diag(1 / mean_probs * priors)
+        self.b = np.zeros(num_classes)
+    
+    def reestimate(self, probs_test):
+        transformed_probs = np.matmul(probs_test,self.W_inv.T) + self.b
         transformed_probs /= transformed_probs.sum(axis=1, keepdims=True)
         return transformed_probs
 
@@ -54,10 +98,23 @@ def calibrate_probs_from_trained_model(
 
 
 def train_reestimator_from_probs(
-    probs_train
+    probs_train,
+    labels_train=None
 ):
-    reestimator = Reestimator()
-    reestimator.train(probs_train)
+    if labels_train is None:
+        reestimator = Reestimator()
+        reestimator.train(probs_train)
+    else:
+        reestimator = ReestimatorWithPrior()
+        reestimator.train(probs_train,labels_train)
+    return reestimator
+
+def train_reestimator_iter_from_probs(
+    probs_train,
+    train_labels=None
+):
+    reestimator = ReestimatorIterative()
+    reestimator.train(probs_train,train_labels)
     return reestimator
 
 

@@ -1,0 +1,13 @@
+{
+    "max_memory": {"cuda:0": "1GiB", "cpu": "30GiB"},
+    "model": "gpt2-xl",
+    "layers_to_train": ["transformer.wte"],
+    "epochs": 4,
+    "learning_rate": 1e-5,
+    
+    "dataset": "trec",
+    "batch_size": 1,
+    "num_samples": 600,
+    
+    "random_state": 3874562
+}

@@ -1,8 +1,9 @@
 import os
 import openai
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig, GPT2LMHeadModel
 from accelerate import init_empty_weights, infer_auto_device_map, load_checkpoint_and_dispatch
 import torch
+from torch.optim import AdamW
 import numpy as np
 import sys
 import time
@@ -117,13 +118,15 @@ class GPT3LanguageModel:
                     labels_probs[prompt_idx, label_idx] += np.exp(logprob)
         return labels_probs
     
+
 class HFLanguageModel:
 
     MODELS = [
         "gpt2",
         "gpt2-medium",
         "gpt2-large",
-        "gpt2-xl"
+        "gpt2-xl",
+        "gpt2-xl_trec_600"
     ]
 
     def __init__(self, root_dir, model_name="gpt2", max_memory=None):
@@ -141,9 +144,10 @@ class HFLanguageModel:
             if not os.path.exists(model_dir):
                 os.makedirs(model_dir)
             try:
-                config = AutoConfig.from_pretrained(self.model_name, cache_dir=model_dir, local_files_only=True)
+                config = AutoConfig.from_pretrained(model_dir)
                 with init_empty_weights():
                     model = AutoModelForCausalLM.from_config(config)
+                # model = AutoModelForCausalLM.from_pretrained(self.model_name, cache_dir=model_dir, local_files_only=True, device_map="auto") 
                 model.config.pad_token_id = model.config.eos_token_id
                 model.tie_weights()
                 device_map = infer_auto_device_map(model, max_memory=max_memory)
@@ -151,7 +155,6 @@ class HFLanguageModel:
                     model, model_dir, device_map=device_map, no_split_module_classes=["GPT2Block"]
                 )
                 model.eval()
-                
                 tokenizer = AutoTokenizer.from_pretrained(model_dir, cache_dir=model_dir, local_files_only=True)
                 tokenizer.padding_side = "left"
                 tokenizer.pad_token = tokenizer.eos_token
@@ -216,3 +219,16 @@ class HFLanguageModel:
         position_ids.masked_fill_(position_ids < 0, 0)
         return position_ids
 
+
+def create_optimizer(model,layers_to_be_trained,learning_rate=1e-5):
+    trainable_parameters = {}
+    for layer in layers_to_be_trained:
+        trainable_parameters = {
+            **trainable_parameters,
+            **{name: param for name, param in model.model.named_parameters() if layer in name}
+        }
+    for name, param in model.model.named_parameters():
+        if name not in trainable_parameters:
+            param.requires_grad = False
+    optimizer = AdamW((param for param in trainable_parameters.values()), lr=learning_rate)
+    return optimizer
