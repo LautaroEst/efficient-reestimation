@@ -1,7 +1,0 @@
-{
-    "num_train_samples": [400],
-    "metrics": ["cross-entropy", "accuracy"],
-    "calmethod": "AffineCalLogLoss",
-    "calparams": {"bias": true, "scale": true},
-    "bootstrap": 100
-}

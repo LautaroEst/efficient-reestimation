@@ -21,16 +21,17 @@ class Reestimator:
         num_classes = probs_train.shape[1]
         mean_probs = probs_train.mean(axis=0)
 
-        if labels_train is not None:
-            priors = np.bincount(labels_train,minlength=num_classes) / len(labels_train)
+        if labels_train is None:
+            priors = np.ones(num_classes) / num_classes
         else:
-            priors = np.ones(num_classes)
+            priors = np.bincount(labels_train,minlength=num_classes) / len(labels_train)
 
         self.W_inv = np.diag(1 / mean_probs * priors)
         self.b = np.zeros(num_classes)
     
     def reestimate(self, probs_test):
         transformed_probs = np.matmul(probs_test,self.W_inv.T) + self.b
+        transformed_probs[transformed_probs == 0] = 1e-16
         transformed_probs /= transformed_probs.sum(axis=1, keepdims=True)
         return transformed_probs
 
@@ -43,7 +44,7 @@ class ReestimatorIterative:
     def train(self, probs_train, labels_train=None):
         num_classes = probs_train.shape[1]
         if labels_train is None:
-            priors = np.ones(num_classes)
+            priors = np.ones(num_classes) / num_classes
         else:
             priors = np.bincount(labels_train,minlength=num_classes) / len(labels_train)
         probs_train = probs_train.copy()
@@ -55,6 +56,7 @@ class ReestimatorIterative:
 
     def reestimate(self, probs_test):
         probs_test = probs_test * self.exp_beta
+        probs_test[probs_test == 0] = 1e-16
         probs_test /= probs_test.sum(axis=1, keepdims=True)
         return probs_test
     
