@@ -1,9 +1,9 @@
 import os
 import openai
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig, GPT2LMHeadModel
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig, GPT2LMHeadModel, T5ForConditionalGeneration
 from accelerate import init_empty_weights, infer_auto_device_map, load_checkpoint_and_dispatch
 import torch
-from torch.optim import AdamW
+from torch.optim import AdamW, SGD
 import numpy as np
 import sys
 import time
@@ -121,19 +121,33 @@ class GPT3LanguageModel:
 
 class HFLanguageModel:
 
-    MODELS = [
-        "gpt2",
-        "gpt2-medium",
-        "gpt2-large",
-        "gpt2-xl",
-        "gpt2-xl_trec_600"
-    ]
+    MODELS = {
+        "gpt2": GPT2LMHeadModel,
+        "gpt2-medium": GPT2LMHeadModel,
+        "gpt2-large": GPT2LMHeadModel,
+        "gpt2-xl": GPT2LMHeadModel,
+        "gpt2-xl_trec_600": GPT2LMHeadModel,
+        "google/flan-t5-small": T5ForConditionalGeneration
+    }
 
     def __init__(self, root_dir, model_name="gpt2", max_memory=None):
         self.root_dir = root_dir
         self.model_name = model_name
         self.model, self.tokenizer = self._setup_model(max_memory=max_memory)
                 
+    def _setup_model_and_tokenizer(self, model, tokenizer):
+        if self.model_name in ["gpt2", "gpt2-medium", "gpt2-large", "gpt2-xl", "gpt2-xl_trec_600"]:
+            model.config.pad_token_id = model.config.eos_token_id
+            tokenizer.padding_side = "left"
+            tokenizer.pad_token = tokenizer.eos_token
+            self._model_architecture = "decoder_only"
+        elif self.model_name in ["google/flan-t5-small"]:
+            model.config.pad_token_id = model.config.eos_token_id
+            tokenizer.padding_side = "left"
+            tokenizer.pad_token = tokenizer.eos_token
+            self._model_architecture = "encoder_decoder"
+        return model, tokenizer
+
     def _setup_model(self, max_memory=None):
         if max_memory is None:
             max_memory = {"cuda:0": "10GiB", "cpu": "30GiB"}
@@ -141,34 +155,28 @@ class HFLanguageModel:
             raise ValueError(f"max_memory must be a dict, got {type(max_memory)}")
         if self.model_name in self.MODELS:
             model_dir = os.path.join(self.root_dir, "models", self.model_name)
+            model_cls = self.MODELS[self.model_name]
             if not os.path.exists(model_dir):
                 os.makedirs(model_dir)
             try:
                 config = AutoConfig.from_pretrained(model_dir)
                 with init_empty_weights():
-                    model = AutoModelForCausalLM.from_config(config)
-                # model = AutoModelForCausalLM.from_pretrained(self.model_name, cache_dir=model_dir, local_files_only=True, device_map="auto") 
-                model.config.pad_token_id = model.config.eos_token_id
+                    model = model_cls(config=config)
+                tokenizer = AutoTokenizer.from_pretrained(model_dir, cache_dir=model_dir, local_files_only=True)
+                model, tokenizer = self._setup_model_and_tokenizer(model, tokenizer)
                 model.tie_weights()
                 device_map = infer_auto_device_map(model, max_memory=max_memory)
                 model = load_checkpoint_and_dispatch(
                     model, model_dir, device_map=device_map, no_split_module_classes=["GPT2Block"]
                 )
-                model.eval()
-                tokenizer = AutoTokenizer.from_pretrained(model_dir, cache_dir=model_dir, local_files_only=True)
-                tokenizer.padding_side = "left"
-                tokenizer.pad_token = tokenizer.eos_token
-                
             except OSError as e:
-                model = AutoModelForCausalLM.from_pretrained(self.model_name)
-                model.config.pad_token_id = model.config.eos_token_id
-                model.save_pretrained(model_dir,max_shard_size="500MB")
-                
+                model = model_cls.from_pretrained(self.model_name)
                 tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-                tokenizer.padding_side = "left"
-                tokenizer.pad_token = tokenizer.eos_token
+                model, tokenizer = self._setup_model_and_tokenizer(model, tokenizer)
+                model.save_pretrained(model_dir,max_shard_size="100MB")
                 tokenizer.save_pretrained(model_dir)
             
+            model.eval()
             return model, tokenizer
         else:
             raise ValueError(f"Model {self.model_name} not supported.")
@@ -193,22 +201,65 @@ class HFLanguageModel:
             The probability P(label|prompt) of the label given the prompt.
 
         """
+        if self._model_architecture == "decoder_only":
+            return self._get_label_probs_for_decoder_only(prompts_batch, labels_dict)
+        elif self._model_architecture == "encoder_decoder":
+            return self._get_label_probs_for_encoder_decoder(prompts_batch, labels_dict)
+        
+    def _get_label_probs_for_encoder_decoder(self, prompts_batch, labels_dict):
+        batch_size = len(prompts_batch)
         with torch.no_grad():
-            labels_probs = torch.zeros(len(prompts_batch), len(labels_dict), device=self.model.device)
+            labels_probs = torch.zeros(batch_size, len(labels_dict), device=self.model.device)
+            encoded_prompts = self.tokenizer(prompts_batch, return_tensors="pt", padding=True)
+            encoded_prompts["position_ids"] = self.create_position_ids(encoded_prompts["attention_mask"])
+            encoded_prompts = {k: v.to(self.model.device) for k, v in encoded_prompts.items()}
+            prompt_output = self.model(**encoded_prompts, use_cache=True, output_attentions=False, output_hidden_states=False)
+            last_token_logprobs = torch.log_softmax(prompt_output.logits[:,-1,:], dim=-1)
+            sequence_lens = encoded_prompts["attention_mask"].sum(dim=-1,keepdim=True).cpu()
             for idx, label_list in labels_dict.items():
-                probs = torch.zeros(len(prompts_batch),1, device=self.model.device)
+                probs = torch.zeros(batch_size,1, device=self.model.device)
                 for label in label_list:
-                    label_start_idx = sum(self.tokenizer(f" {label}")["attention_mask"])
-                    prompts = [f"{prompt} {label}" for prompt in prompts_batch]
-                    encoded_input = self.tokenizer(prompts, return_tensors="pt", padding=True)
-                    encoded_input = {k: v.to(self.model.device) for k, v in encoded_input.items()}
-                    encoded_input["position_ids"] = self.create_position_ids(encoded_input["attention_mask"])
-                    logits = self.model(**encoded_input).logits
-                    probs += torch.exp(torch.gather(
-                        torch.log_softmax(logits[:,-label_start_idx-1:-1,:], dim=-1),
-                        dim=-1, 
-                        index=encoded_input["input_ids"][:, -label_start_idx:].unsqueeze(-1)
-                    ).squeeze(-1).sum(dim=-1, keepdim=True))
+                    encoded_label = self.tokenizer([f" {label}" for _ in range(batch_size)], return_tensors="pt", padding=True)
+                    label_len = encoded_label["attention_mask"].shape[1]
+                    encoded_label["position_ids"] = torch.arange(label_len).repeat(batch_size,1) + sequence_lens
+                    encoded_label["attention_mask"] = torch.cat((encoded_prompts["attention_mask"].cpu(),torch.ones((batch_size,label_len),dtype=torch.long)),dim=1)
+                    encoded_label = {k: v.to(self.model.device) for k, v in encoded_label.items()}
+                    logprobs = torch.log_softmax(self.model(**encoded_label, past_key_values=prompt_output.past_key_values, output_attentions=False, output_hidden_states=False).logits,dim=-1)
+                    gathered_logprobs = torch.gather(
+                        logprobs[:,:-1,:],
+                        dim=-1,
+                        index=encoded_label["input_ids"][:, 1:].unsqueeze(-1)
+                    ).squeeze(-1).sum(dim=1,keepdim=True) + torch.gather(last_token_logprobs,dim=-1,index=encoded_label["input_ids"][:,-1].unsqueeze(-1))
+                    probs += torch.exp(gathered_logprobs)
+                labels_probs[:, idx] = probs[:, 0]
+            labels_probs = labels_probs.cpu().numpy()
+        return labels_probs
+
+    def _get_label_probs_for_decoder_only(self, prompts_batch, labels_dict):
+        batch_size = len(prompts_batch)
+        with torch.no_grad():
+            labels_probs = torch.zeros(batch_size, len(labels_dict), device=self.model.device)
+            encoded_prompts = self.tokenizer(prompts_batch, return_tensors="pt", padding=True)
+            encoded_prompts["position_ids"] = self.create_position_ids(encoded_prompts["attention_mask"])
+            encoded_prompts = {k: v.to(self.model.device) for k, v in encoded_prompts.items()}
+            prompt_output = self.model(**encoded_prompts, use_cache=True, output_attentions=False, output_hidden_states=False)
+            last_token_logprobs = torch.log_softmax(prompt_output.logits[:,-1,:], dim=-1)
+            sequence_lens = encoded_prompts["attention_mask"].sum(dim=-1,keepdim=True).cpu()
+            for idx, label_list in labels_dict.items():
+                probs = torch.zeros(batch_size,1, device=self.model.device)
+                for label in label_list:
+                    encoded_label = self.tokenizer([f" {label}" for _ in range(batch_size)], return_tensors="pt", padding=True)
+                    label_len = encoded_label["attention_mask"].shape[1]
+                    encoded_label["position_ids"] = torch.arange(label_len).repeat(batch_size,1) + sequence_lens
+                    encoded_label["attention_mask"] = torch.cat((encoded_prompts["attention_mask"].cpu(),torch.ones((batch_size,label_len),dtype=torch.long)),dim=1)
+                    encoded_label = {k: v.to(self.model.device) for k, v in encoded_label.items()}
+                    logprobs = torch.log_softmax(self.model(**encoded_label, past_key_values=prompt_output.past_key_values, output_attentions=False, output_hidden_states=False).logits,dim=-1)
+                    gathered_logprobs = torch.gather(
+                        logprobs[:,:-1,:],
+                        dim=-1,
+                        index=encoded_label["input_ids"][:, 1:].unsqueeze(-1)
+                    ).squeeze(-1).sum(dim=1,keepdim=True) + torch.gather(last_token_logprobs,dim=-1,index=encoded_label["input_ids"][:,-1].unsqueeze(-1))
+                    probs += torch.exp(gathered_logprobs)
                 labels_probs[:, idx] = probs[:, 0]
             labels_probs = labels_probs.cpu().numpy()
         return labels_probs
@@ -231,4 +282,5 @@ def create_optimizer(model,layers_to_be_trained,learning_rate=1e-5):
         if name not in trainable_parameters:
             param.requires_grad = False
     optimizer = AdamW((param for param in trainable_parameters.values()), lr=learning_rate)
+    # optimizer = SGD((param for param in trainable_parameters.values()), lr=learning_rate)
     return optimizer

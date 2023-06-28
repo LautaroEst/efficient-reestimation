@@ -17,23 +17,28 @@ class Reestimator:
         self.W_inv = None
         self.b = None
 
-    def train(self, probs_train):
+    def train(self, probs_train, labels_train=None):
         num_classes = probs_train.shape[1]
         mean_probs = probs_train.mean(axis=0)
 
-        self.W_inv = np.diag(1 / mean_probs)
+        if labels_train is not None:
+            priors = np.bincount(labels_train,minlength=num_classes) / len(labels_train)
+        else:
+            priors = np.ones(num_classes)
+
+        self.W_inv = np.diag(1 / mean_probs * priors)
         self.b = np.zeros(num_classes)
     
     def reestimate(self, probs_test):
         transformed_probs = np.matmul(probs_test,self.W_inv.T) + self.b
         transformed_probs /= transformed_probs.sum(axis=1, keepdims=True)
         return transformed_probs
-    
 
 class ReestimatorIterative:
 
     def __init__(self, num_iter=10):
         self.num_iter = num_iter
+        self.exp_beta = None
 
     def train(self, probs_train, labels_train=None):
         num_classes = probs_train.shape[1]
@@ -54,24 +59,7 @@ class ReestimatorIterative:
         return probs_test
     
 
-class ReestimatorWithPrior:
 
-    def __init__(self):
-        self.W = None
-        self.b = None
-
-    def train(self, probs_train, labels_train):
-        num_classes = probs_train.shape[1]
-        mean_probs = probs_train.mean(axis=0)
-        priors = np.bincount(labels_train,minlength=num_classes) / len(labels_train)
-
-        self.W_inv = np.diag(1 / mean_probs * priors)
-        self.b = np.zeros(num_classes)
-    
-    def reestimate(self, probs_test):
-        transformed_probs = np.matmul(probs_test,self.W_inv.T) + self.b
-        transformed_probs /= transformed_probs.sum(axis=1, keepdims=True)
-        return transformed_probs
 
 
 def train_calibrator_from_probs(
@@ -101,12 +89,8 @@ def train_reestimator_from_probs(
     probs_train,
     labels_train=None
 ):
-    if labels_train is None:
-        reestimator = Reestimator()
-        reestimator.train(probs_train)
-    else:
-        reestimator = ReestimatorWithPrior()
-        reestimator.train(probs_train,labels_train)
+    reestimator = Reestimator()
+    reestimator.train(probs_train,labels_train)
     return reestimator
 
 def train_reestimator_iter_from_probs(

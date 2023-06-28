@@ -25,7 +25,7 @@ def main():
         root_dir, 
         model, 
         config["num_samples"], 
-        config["batch_size"], 
+        batch_size=1, 
         dataset=config["dataset"],
         random_state=config["random_state"]
     )
@@ -34,16 +34,20 @@ def main():
     optimizer = create_optimizer(model, config["layers_to_train"], learning_rate=config["learning_rate"])
 
     # Train
+    batch_accumulation = config["batch_size"]
     epochs_pbar = tqdm(range(config["epochs"]),desc="Epochs",leave=False)
     for epoch in epochs_pbar:
         training_pbar = tqdm(training_dataloader,desc="Batch",leave=False)
+        optimizer.zero_grad()
         for i, batch in enumerate(training_pbar):
-            optimizer.zero_grad()
             loss = model.model(**batch,output_attentions=False,output_hidden_states=False).loss
+            loss = loss / batch_accumulation
             loss.backward()
-            optimizer.step()
             training_pbar.set_postfix({"loss": f"{loss.item():.4f}"})
-            writer.add_scalar("Loss/train", loss.item(), epoch * len(training_dataloader) + i)
+            if (i + 1) % batch_accumulation == 0 or i == len(training_dataloader) - 1:
+                optimizer.step()
+                optimizer.zero_grad()
+                writer.add_scalar("Loss/train", loss.item(), epoch * len(training_dataloader) + i)
     writer.flush()
     writer.close()
 

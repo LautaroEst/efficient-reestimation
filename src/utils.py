@@ -226,7 +226,7 @@ def plot_score_vs_nshots_std(root_dir, experiment_name, calibration_configs, met
                 n_shots = mean.index.get_level_values("n_shots")
                 kwargs = result2kwargs(result)
                 ax[i,j].plot(n_shots, mean, **kwargs)
-                # ax[i,j].fill_between(n_shots, mean - std, mean + std, alpha=0.1, color=kwargs["color"])
+                ax[i,j].fill_between(n_shots, mean - std, mean + std, alpha=0.1, color=kwargs["color"])
             if i == 0:
                 ax[i,j].set_title(dataset2description(dataset),ha='left', x=0.0)
             if metric == "accuracy":
