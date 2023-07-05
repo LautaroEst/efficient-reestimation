@@ -34,6 +34,57 @@ class Reestimator:
         transformed_probs[transformed_probs == 0] = 1e-16
         transformed_probs /= transformed_probs.sum(axis=1, keepdims=True)
         return transformed_probs
+    
+class ReestimatorWithPrompt:
+
+    def __init__(self):
+        self.W_inv = None
+        self.b = None
+
+    def train(self, probs_train, probs_prompt, labels_train=None):
+        num_classes = probs_train.shape[1]
+        mean_probs = (probs_train * probs_prompt.reshape(-1,1)).sum(axis=0)
+
+        if labels_train is None:
+            priors = np.ones(num_classes) / num_classes
+        else:
+            priors = np.bincount(labels_train,minlength=num_classes) / len(labels_train)
+
+        self.W_inv = np.diag(1 / mean_probs * priors)
+        self.b = np.zeros(num_classes)
+    
+    def reestimate(self, probs_test):
+        transformed_probs = np.matmul(probs_test,self.W_inv.T) + self.b
+        transformed_probs[transformed_probs == 0] = 1e-16
+        transformed_probs /= transformed_probs.sum(axis=1, keepdims=True)
+        return transformed_probs
+
+# class ReestimatorWithLogPrompt:
+
+#     def __init__(self):
+#         self.W_inv = None
+#         self.b = None
+
+#     def train(self, logprobs_train, logprobs_prompt, labels_train=None):
+#         num_classes = logprobs_train.shape[1]
+#         mean_probs = (logprobs_train + logprobs_prompt.reshape(-1,1)).sum(axis=0)
+
+#         if labels_train is None:
+#             priors = np.ones(num_classes) / num_classes
+#         else:
+#             priors = np.bincount(labels_train,minlength=num_classes) / len(labels_train)
+
+#         self.log_w_inv = np.diag(1 / mean_probs * priors)
+#         self.b = np.zeros(num_classes)
+    
+#     def reestimate(self, probs_test):
+#         transformed_probs = np.matmul(probs_test,self.W_inv.T) + self.b
+#         transformed_probs[transformed_probs == 0] = 1e-16
+#         transformed_probs /= transformed_probs.sum(axis=1, keepdims=True)
+#         return transformed_probs
+
+
+    
 
 class ReestimatorIterative:
 
@@ -103,6 +154,14 @@ def train_reestimator_iter_from_probs(
     reestimator.train(probs_train,train_labels)
     return reestimator
 
+def train_reestimator_prompt_from_probs(
+    probs_train,
+    prompt_probs_train,
+    train_labels=None
+):
+    reestimator = ReestimatorWithPrompt()
+    reestimator.train(probs_train,prompt_probs_train,train_labels)
+    return reestimator
 
 def reestimate_probs_from_trained_model(
     probs_test,

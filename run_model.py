@@ -98,7 +98,7 @@ def run(
         with open(os.path.join(results_dir,"test.pkl"), "rb") as f:
             test_results = pickle.load(f)
     else:
-        test_labels, test_probs, test_queries, test_queries_truncated, test_shots_truncated = get_original_unnormalized_probs(
+        test_labels, test_probs, test_prompt_logprobs, test_queries, test_queries_truncated, test_shots_truncated = get_original_unnormalized_probs(
             model, 
             dataset, 
             eval_split="test", 
@@ -108,6 +108,7 @@ def run(
         test_results = {
             "test_labels": test_labels,
             "test_probs": test_probs,
+            "test_prompt_logprobs": test_prompt_logprobs,
             "test_queries": test_queries,
             "test_queries_truncated": test_queries_truncated,
             "test_shots_truncated": test_shots_truncated
@@ -118,7 +119,7 @@ def run(
         with open(os.path.join(results_dir,"train.pkl"), "rb") as f:
             train_results = pickle.load(f)
     else:
-        train_labels, train_probs, train_queries, train_queries_truncated, train_shots_truncated = get_original_unnormalized_probs(
+        train_labels, train_probs, train_prompt_logprobs, train_queries, train_queries_truncated, train_shots_truncated = get_original_unnormalized_probs(
             model, 
             dataset, 
             eval_split="train", 
@@ -128,6 +129,7 @@ def run(
         train_results = {
             "train_labels": train_labels,
             "train_probs": train_probs,
+            "train_prompt_logprobs": train_prompt_logprobs,
             "train_queries": train_queries,
             "train_queries_truncated": train_queries_truncated,
             "train_shots_truncated": train_shots_truncated
@@ -141,7 +143,7 @@ def run(
             with open(os.path.join(results_dir,f"{cf_name}.pkl"), "rb") as f:
                 cf_results[cf_name] = pickle.load(f)
         else:
-            cf_probs, cf_queries, cf_queries_truncated, cf_shots_truncated = get_content_free_input_unnormalized_probs(
+            cf_probs, cf_prompt_logprobs, cf_queries, cf_queries_truncated, cf_shots_truncated = get_content_free_input_unnormalized_probs(
                 model, 
                 dataset, 
                 cf_in,
@@ -150,6 +152,7 @@ def run(
             cf_results[cf_name] = {
                 "inputs": cf_in,
                 "probs": cf_probs,
+                "prompt_logprobs": cf_prompt_logprobs,
                 "queries": cf_queries,
                 "queries_truncated": cf_queries_truncated,
                 "shots_truncated": cf_shots_truncated

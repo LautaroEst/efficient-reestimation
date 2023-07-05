@@ -243,6 +243,11 @@ class HFLanguageModel:
             encoded_prompts["position_ids"] = self.create_position_ids(encoded_prompts["attention_mask"])
             encoded_prompts = {k: v.to(self.model.device) for k, v in encoded_prompts.items()}
             prompt_output = self.model(**encoded_prompts, use_cache=True, output_attentions=False, output_hidden_states=False)
+            prompt_logprob = torch.gather(
+                torch.log_softmax(prompt_output.logits[:,:-1,:],dim=-1),
+                dim=-1,
+                index=encoded_prompts["input_ids"][:,1:].unsqueeze(-1)
+            ).squeeze(-1).mean(dim=1).cpu().numpy()
             last_token_logprobs = torch.log_softmax(prompt_output.logits[:,-1,:], dim=-1)
             sequence_lens = encoded_prompts["attention_mask"].sum(dim=-1,keepdim=True).cpu()
             for idx, label_list in labels_dict.items():
@@ -262,7 +267,7 @@ class HFLanguageModel:
                     probs += torch.exp(gathered_logprobs)
                 labels_probs[:, idx] = probs[:, 0]
             labels_probs = labels_probs.cpu().numpy()
-        return labels_probs
+        return labels_probs, prompt_logprob
 
     @staticmethod
     def create_position_ids(attention_mask):

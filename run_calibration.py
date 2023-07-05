@@ -9,7 +9,7 @@ import pandas as pd
 from tqdm import tqdm
 from src.expected_cost.psrcal_wrappers import LogLoss, Brier
 from src.utils import parse_calibration_args, get_results_ids_from_config
-from src.calibration import calibrate_from_train_probs, calibrate_probs_from_trained_model, reestimate_probs_from_trained_model, train_calibrator_from_probs, train_reestimator_from_probs, train_reestimator_iter_from_probs
+from src.calibration import calibrate_from_train_probs, calibrate_probs_from_trained_model, reestimate_probs_from_trained_model, train_calibrator_from_probs, train_reestimator_from_probs, train_reestimator_iter_from_probs, calibrate_from_train_probs, calibrate_probs_from_trained_model, train_reestimator_prompt_from_probs
 from sklearn.metrics import accuracy_score
 
 
@@ -55,6 +55,8 @@ def main():
             with open(os.path.join(root_dir, f"results/calibrated/{calibration_config_name}/{result_id}.pkl"), "wb") as f:
                 pickle.dump(results, f)
 
+        if any([(result[key] == 0).sum() > 0 and "20" in key for result in results for key in result.keys() if key not in ["boot_idx", "test_labels"]]):
+            print(f"WARNING: {result_id} contains zero probabilities!")
         scores = compute_metrics(results, main_config, evaluation_metrics)
         scores_records.extend(scores)
 
@@ -112,12 +114,14 @@ def run_calibration_with_bootstrap(
     train_probs = train_results["train_probs"].copy()
     train_probs = train_probs / train_probs.sum(axis=1, keepdims=True)
     train_labels = train_results["train_labels"]
+    train_prompt_probs = np.exp(train_results["train_prompt_logprobs"])
 
     rs = np.random.RandomState(random_state)
     train_models_dict = {}
     for n in num_train_samples:
         train_idx = rs.choice(len(train_probs), n, replace=False)
         subsample_probs = train_probs[train_idx]
+        subsample_prompt_probs = train_prompt_probs[train_idx]
         subsample_labels = train_labels[train_idx]
         scalecalmodel = train_calibrator_from_probs(subsample_probs, subsample_labels, calmethod=calmethod, calparams={"scale": True, "bias": True})
         noscalecalmodel = train_calibrator_from_probs(subsample_probs, subsample_labels, calmethod=calmethod, calparams={"scale": False, "bias": True})
@@ -125,7 +129,9 @@ def run_calibration_with_bootstrap(
         reestmodelwithpriors = train_reestimator_from_probs(subsample_probs, subsample_labels)
         reestiterative = train_reestimator_iter_from_probs(subsample_probs)
         reestiterativewithpriors = train_reestimator_iter_from_probs(subsample_probs, subsample_labels)
-        train_models_dict[n] = (scalecalmodel, noscalecalmodel, reestmodel, reestmodelwithpriors, reestiterative, reestiterativewithpriors)
+        reestpromptmodel = train_reestimator_prompt_from_probs(subsample_probs, subsample_prompt_probs)
+        reestpromptwithpriorsmodel = train_reestimator_prompt_from_probs(subsample_probs, subsample_prompt_probs, subsample_labels)
+        train_models_dict[n] = (scalecalmodel, noscalecalmodel, reestmodel, reestmodelwithpriors, reestiterative, reestiterativewithpriors, reestpromptmodel, reestpromptwithpriorsmodel)
 
     cf_models_dict = {}
     for cf_name, cf_result in cf_results.items():
@@ -160,7 +166,7 @@ def run_calibration_with_bootstrap(
 
 def calibrate_reestimate_all(
     test_probs, 
-    test_labels, 
+    test_labels,
     cf_models_dict, 
     train_models_dict, 
     boots_idx, 
@@ -196,13 +202,17 @@ def calibrate_reestimate_all(
     test_probs_reestwithpriors_train = {}
     test_probs_reestiterative_train = {}
     test_probs_reestiterativewithpriors_train = {}
-    for n, (scalecalmodel, noscalecalmodel, reestmodel, reestmodelwithpriors, reestiterative, reestiterativewithpriors) in train_models_dict.items():
+    test_probs_reestprompt_train = {}
+    test_probs_reestpromptwithpriors_train = {}
+    for n, (scalecalmodel, noscalecalmodel, reestmodel, reestmodelwithpriors, reestiterative, reestiterativewithpriors, reestpromptmodel, reestpromptwithpriorsmodel) in train_models_dict.items():
         test_probs_scalecal_train[n] = calibrate_probs_from_trained_model(test_probs,scalecalmodel)
         test_probs_noscalecal_train[n] = calibrate_probs_from_trained_model(test_probs,noscalecalmodel)
         test_probs_reest_train[n] = reestimate_probs_from_trained_model(test_probs,reestmodel)
         test_probs_reestwithpriors_train[n] = reestimate_probs_from_trained_model(test_probs,reestmodelwithpriors)
         test_probs_reestiterative_train[n] = reestimate_probs_from_trained_model(test_probs,reestiterative)
         test_probs_reestiterativewithpriors_train[n] = reestimate_probs_from_trained_model(test_probs,reestiterativewithpriors)
+        test_probs_reestprompt_train[n] = reestimate_probs_from_trained_model(test_probs,reestpromptmodel)
+        test_probs_reestpromptwithpriors_train[n] = reestimate_probs_from_trained_model(test_probs,reestpromptwithpriorsmodel)
 
     test_probs_reest_cf = {}
     for cf_name, cf_reestmodel in cf_models_dict.items():
@@ -220,6 +230,8 @@ def calibrate_reestimate_all(
         **{f"test_probs_reestwithpriors_train_{n}": test_probs_reestwithpriors_train[n] for n in train_models_dict},
         **{f"test_probs_reestiterative_train_{n}": test_probs_reestiterative_train[n] for n in train_models_dict},
         **{f"test_probs_reestiterativewithpriors_train_{n}": test_probs_reestiterativewithpriors_train[n] for n in train_models_dict},
+        **{f"test_probs_reestprompt_train_{n}": test_probs_reestprompt_train[n] for n in train_models_dict},
+        **{f"test_probs_reestpromptwithpriors_train_{n}": test_probs_reestpromptwithpriors_train[n] for n in train_models_dict},
         "test_probs_cal_xval": test_probs_cal_xval,
         **{f"test_probs_reest_cf_{cf_name}": test_probs_reest_cf[cf_name] for cf_name in cf_models_dict}
     }
