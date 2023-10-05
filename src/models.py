@@ -159,7 +159,7 @@ class HFLanguageModel:
             if not os.path.exists(model_dir):
                 os.makedirs(model_dir)
             try:
-                config = AutoConfig.from_pretrained(model_dir)
+                config = AutoConfig.from_pretrained(model_dir, local_files_only=True)
                 with init_empty_weights():
                     model = model_cls(config=config)
                 tokenizer = AutoTokenizer.from_pretrained(model_dir, cache_dir=model_dir, local_files_only=True)
@@ -170,8 +170,8 @@ class HFLanguageModel:
                     model, model_dir, device_map=device_map, no_split_module_classes=["GPT2Block"]
                 )
             except OSError as e:
-                model = model_cls.from_pretrained(self.model_name)
-                tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+                model = model_cls.from_pretrained(self.model_name, local_files_only=True)
+                tokenizer = AutoTokenizer.from_pretrained(self.model_name, local_files_only=True)
                 model, tokenizer = self._setup_model_and_tokenizer(model, tokenizer)
                 model.save_pretrained(model_dir,max_shard_size="100MB")
                 tokenizer.save_pretrained(model_dir)
