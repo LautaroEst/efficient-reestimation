@@ -70,7 +70,7 @@ def compute_metrics(results, config, evaluation_metrics):
     scores = []
     for i, result in enumerate(results):
         for key in result.keys():
-            if key in ["boot_idx", "test_labels"]:
+            if key in ["boot_idx", "test_labels"] or "train_idx" in key:
                 continue
 
             this_prob_type = {
@@ -131,7 +131,7 @@ def run_calibration_with_bootstrap(
         reestiterativewithpriors = train_reestimator_iter_from_probs(subsample_probs, subsample_labels)
         reestpromptmodel = train_reestimator_prompt_from_probs(subsample_probs, subsample_prompt_probs)
         reestpromptwithpriorsmodel = train_reestimator_prompt_from_probs(subsample_probs, subsample_prompt_probs, subsample_labels)
-        train_models_dict[n] = (scalecalmodel, noscalecalmodel, reestmodel, reestmodelwithpriors, reestiterative, reestiterativewithpriors, reestpromptmodel, reestpromptwithpriorsmodel)
+        train_models_dict[n] = (scalecalmodel, noscalecalmodel, reestmodel, reestmodelwithpriors, reestiterative, reestiterativewithpriors, reestpromptmodel, reestpromptwithpriorsmodel, train_idx)
 
     cf_models_dict = {}
     for cf_name, cf_result in cf_results.items():
@@ -204,7 +204,8 @@ def calibrate_reestimate_all(
     test_probs_reestiterativewithpriors_train = {}
     test_probs_reestprompt_train = {}
     test_probs_reestpromptwithpriors_train = {}
-    for n, (scalecalmodel, noscalecalmodel, reestmodel, reestmodelwithpriors, reestiterative, reestiterativewithpriors, reestpromptmodel, reestpromptwithpriorsmodel) in train_models_dict.items():
+    train_idx_dict = {}
+    for n, (scalecalmodel, noscalecalmodel, reestmodel, reestmodelwithpriors, reestiterative, reestiterativewithpriors, reestpromptmodel, reestpromptwithpriorsmodel, train_idx) in train_models_dict.items():
         test_probs_scalecal_train[n] = calibrate_probs_from_trained_model(test_probs,scalecalmodel)
         test_probs_noscalecal_train[n] = calibrate_probs_from_trained_model(test_probs,noscalecalmodel)
         test_probs_reest_train[n] = reestimate_probs_from_trained_model(test_probs,reestmodel)
@@ -213,6 +214,7 @@ def calibrate_reestimate_all(
         test_probs_reestiterativewithpriors_train[n] = reestimate_probs_from_trained_model(test_probs,reestiterativewithpriors)
         test_probs_reestprompt_train[n] = reestimate_probs_from_trained_model(test_probs,reestpromptmodel)
         test_probs_reestpromptwithpriors_train[n] = reestimate_probs_from_trained_model(test_probs,reestpromptwithpriorsmodel)
+        train_idx_dict[n] = train_idx
 
     test_probs_reest_cf = {}
     for cf_name, cf_reestmodel in cf_models_dict.items():
@@ -224,6 +226,7 @@ def calibrate_reestimate_all(
         "test_probs_original": test_probs_original,
         "test_labels": test_labels,
         "test_probs_cal_peaky": test_probs_cal_peaky,
+        **{f"train_idx_{n}": train_idx_dict[n] for n in train_models_dict},
         **{f"test_probs_scalecal_train_{n}": test_probs_scalecal_train[n] for n in train_models_dict},
         **{f"test_probs_noscalecal_train_{n}": test_probs_noscalecal_train[n] for n in train_models_dict},
         **{f"test_probs_reest_train_{n}": test_probs_reest_train[n] for n in train_models_dict},

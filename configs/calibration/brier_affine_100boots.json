@@ -1,8 +1,0 @@
-{
-    "num_train_samples": [10, 100, 400],
-    "metrics": ["brier", "accuracy"],
-    "calmethod": "AffineCalLogLoss",
-    "use_bias": true, 
-    "deploy_priors": null, 
-    "bootstrap": 100
-}
